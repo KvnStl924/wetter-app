@@ -1,6 +1,17 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.2.0 – Echte Wetterdaten
+- Standort (nur bei geöffneter App) und Ortsname; ohne Berechtigung Ortssuche
+- Vorhersage aus zwei Modellen: ICON-D2 vom DWD für heute und morgen, ECMWF bis Tag 10
+- Hinweis „unsicher“, wenn die Modelle deutlich voneinander abweichen
+- Kopfbereich mit Temperatur, Zustand, Höchst-/Tiefstwert; schrumpft beim Scrollen
+- Wetterlage stündlich mit Umschaltern Temperatur · Regen · Wind, Sonnenauf- und -untergang als eigene Einträge
+- 10-Tage-Liste mit Temperaturbalken; Tippen öffnet die Tagesdetails
+- Hintergrund folgt dem echten Wetter und den echten Sonnenzeiten
+- Herunterziehen aktualisiert; ohne Netz wird der letzte Stand gezeigt
+- Die mittlere Taste unten öffnet die Ortssuche; Hintergrund-Vorschau jetzt in den Einstellungen
+
 ## 0.1.1 – Fehlerbehebungen
 - Drive: Ordner werden nicht mehr doppelt angelegt (z. B. zweimal „Logs“)
 - Leiste unten: Karten-Knopf und Ortspunkte zeigen jetzt einen Hinweis, wann sie freigeschaltet werden

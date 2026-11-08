@@ -92,6 +92,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             DriveTile()
             UpdateTile()
+            SkyPreviewTile()
 
             Tile("Über") {
                 Text("Wetterdaten ab Version 0.2.0: Open-Meteo.com (CC BY 4.0) und Deutscher Wetterdienst (Open Data).", style = WType.bodyDim)
@@ -99,6 +100,20 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** Alle Hintergründe zum Durchschalten (früher auf dem Hauptbildschirm). */
+@Composable
+private fun SkyPreviewTile() {
+    var weather by remember { mutableStateOf(de.schee.wetter.ui.sky.SkyWeather.PARTLY) }
+    var time by remember { mutableStateOf(de.schee.wetter.ui.sky.SkyTime.NIGHT) }
+    Tile("Hintergrund-Vorschau") {
+        Box(Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(14.dp))) {
+            de.schee.wetter.ui.sky.SkyBackground(weather, time, Modifier.fillMaxSize())
+        }
+        PillRow(de.schee.wetter.ui.sky.SkyWeather.entries, weather, { it.label }, "Hintergrund-Vorschau Wetter") { weather = it }
+        PillRow(de.schee.wetter.ui.sky.SkyTime.entries, time, { it.label }, "Hintergrund-Vorschau Tageszeit") { time = it }
     }
 }
 

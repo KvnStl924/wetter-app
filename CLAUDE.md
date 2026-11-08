@@ -29,3 +29,9 @@ Kevin ist Laie: Antworten einfach und auf Deutsch, selbst erledigen statt Anleit
 - **Immer Dark Mode.** Hintergrund `ui/sky/SkyBackground.kt` entspricht der abgenommenen Vorschau
   `docs/hintergrund-vorschau.html` (prozedurale Wolken/Nebel – einfache Flecken fand Kevin „billig“).
 - Stil wie iOS-Wetter-App, aber eigene Symbole (`ui/icons/WeatherIcon.kt`) und Schrift Inter (OFL).
+
+## Prüfen ohne Handy
+- Bildschirmfotos (Robolectric): `WETTER_SCREENSHOTS=<ordner> ./gradlew testDebugUnitTest --tests '*ScreenshotDump'`
+  → `main_top.png`, `main_full.png` (Testdaten aus `app/src/test/resources`). Endlos-Animationen sind dort über
+  `LocalAnimate provides false` aus, sonst hängt Robolectric. Neue Endlos-Animationen müssen `LocalAnimate` beachten.
+- Kein Emulator: der Windows-Hypervisor-Treiber fehlt (bräuchte Admin).

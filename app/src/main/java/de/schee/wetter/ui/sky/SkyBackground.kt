@@ -85,6 +85,9 @@ object SkyPalette {
     }
 }
 
+/** false = keine Endlos-Animationen (nur für Bildschirmfotos im Test). */
+val LocalAnimate = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 private class Particle(var x: Float, var y: Float, val a: Float, val b: Float, val c: Float)
 
 /**
@@ -105,8 +108,11 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
     val flakes = remember { List(90) { Particle(Random.nextFloat(), Random.nextFloat(), 1f + Random.nextFloat() * 2.2f, .4f + Random.nextFloat() * .8f, Random.nextFloat() * 6f) } }
     var flash by remember { mutableFloatStateOf(0f) }
 
+    val animate = LocalAnimate.current
+
     // Bildtakt für Partikel und Lichteffekte
     LaunchedEffect(lifecycle) {
+        if (!animate) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val start = withFrameNanos { it }
             while (isActive) {
@@ -140,6 +146,7 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
                 } else if (!needs) {
                     volume = null
                 }
+                if (!animate && volume != null) break
                 delay(66)
             }
         }
