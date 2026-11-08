@@ -31,7 +31,7 @@ jobs:
 
       - name: Gradle einrichten
         if: steps.check.outputs.present == 'true'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Tests ausführen
         if: steps.check.outputs.present == 'true'
