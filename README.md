@@ -1,52 +1,41 @@
-# Wetter-App 🌤️
+# Wetter-App 🌙
 
-Eine einfache, werbefreie Android-Wetter-App, geschrieben in **Kotlin** mit **Jetpack Compose**.
-Die App wird als **APK** gebaut und über GitHub Releases verteilt.
+Persönliche Android-Wetter-App (APK) im Stil der iOS-Wetter-App, aber **immer im Dark Mode**.
+Schwerpunkt: **heute** und **Deutschland mit Grenzgebieten**.
 
-> **Status:** Projekt-Setup. Der App-Code (Android-Projekt) folgt im nächsten Schritt.
+> **Status:** Planung abgeschlossen, der App-Code folgt.
+> Der komplette Plan steht in **[docs/KONZEPT.md](docs/KONZEPT.md)**.
 
-## Geplante Funktionen
+## Funktionen (Version 1)
 
-- Aktuelles Wetter am eigenen Standort (GPS)
-- Städtesuche und Favoriten
-- Stündliche Vorhersage (24 h) und 7-Tage-Vorhersage
-- Temperatur, gefühlte Temperatur, Niederschlag, Wind, Luftfeuchtigkeit, UV-Index
-- Hell-/Dunkelmodus, Einheiten °C/°F
-- Offline-Cache der letzten Daten
-
-Details: [docs/KONZEPT.md](docs/KONZEPT.md) · Fahrplan: [Issues & Milestones](../../milestones)
+- Wetter am aktuellen Standort, weitere Orte per Wischen
+- Stündliche Vorhersage (Temperatur · Regen · Wind) mit Sonnenauf- und -untergang
+- 10-Tage-Vorhersage mit Hinweis, wenn die Modelle unsicher sind
+- Echtes DWD-Regenradar: 2 h zurück, 2 h Vorhersage, danach Modell bis 12 h
+- Offizielle DWD-Unwetterwarnungen
+- 12 Kacheln, per langem Drücken verschieb- und ausblendbar
+- Dunkler Hintergrund, der sich Wetter und Tageszeit anpasst
+  ([Vorschau](docs/hintergrund-vorschau.html))
+- Logging mit automatischem Upload zu Google Drive, danach wird die Datei vom Handy gelöscht
+- Update per Knopf in den Einstellungen, nie automatisch
+- Kein Akkuverbrauch im Hintergrund: die App arbeitet nur, solange sie offen ist
 
 ## Technik
 
-| Bereich | Wahl |
-|---|---|
-| Sprache | Kotlin |
-| UI | Jetpack Compose, Material 3 |
-| Architektur | MVVM, Repository-Pattern |
-| Netzwerk | Retrofit / Ktor + kotlinx.serialization |
-| Wetterdaten | [Open-Meteo](https://open-meteo.com/) (kostenlos, kein API-Key) |
-| Lokale Daten | Room / DataStore |
-| Build | Gradle (Kotlin DSL), GitHub Actions |
-| Min. Android | 8.0 (API 26) |
+Kotlin · Jetpack Compose · MVVM · MapLibre · Open-Meteo (ICON-D2 + ECMWF) · DWD Open Data ·
+Schrift Inter · min. Android 8.0
 
 ## APK bauen
-
-Sobald das Android-Projekt angelegt ist:
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-Die APK liegt dann unter `app/build/outputs/apk/debug/app-debug.apk`.
-
-Außerdem baut **GitHub Actions** bei jedem Push automatisch eine Debug-APK
-(zu finden im jeweiligen Workflow-Lauf unter *Artifacts*). Für einen Tag `v*`
-(z. B. `v0.1.0`) wird ein GitHub Release mit der APK erstellt.
-
-## Mitmachen
-
-Bugs und Ideen bitte über die [Issue-Vorlagen](../../issues/new/choose) melden.
+GitHub Actions baut bei jedem Push eine Debug-APK (*Artifacts* im Workflow-Lauf).
+Ein Tag `v*` (z. B. `v0.1.0`) erzeugt ein GitHub Release mit der APK. Daraus holt sich der
+Update-Knopf der App die neue Version.
 
 ## Lizenz
 
-[MIT](LICENSE) · Wetterdaten von [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0)
+[MIT](LICENSE) · Wetterdaten: [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0),
+[Deutscher Wetterdienst](https://www.dwd.de/opendata) (Open Data)
