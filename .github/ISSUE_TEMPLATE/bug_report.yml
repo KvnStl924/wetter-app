@@ -1,0 +1,28 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie erwartet
+labels: [bug]
+body:
+  - type: textarea
+    id: beschreibung
+    attributes:
+      label: Was ist passiert?
+    validations:
+      required: true
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Reproduzieren
+      placeholder: "1. App öffnen\n2. ..."
+  - type: textarea
+    id: erwartet
+    attributes:
+      label: Was hast du erwartet?
+  - type: input
+    id: version
+    attributes:
+      label: App-Version
+  - type: input
+    id: geraet
+    attributes:
+      label: Gerät / Android-Version
+      placeholder: "z. B. Pixel 8, Android 15"

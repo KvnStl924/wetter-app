@@ -1,0 +1,14 @@
+name: Funktion vorschlagen
+description: Idee für eine neue Funktion
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idee
+    attributes:
+      label: Was soll die App können?
+    validations:
+      required: true
+  - type: textarea
+    id: nutzen
+    attributes:
+      label: Warum ist das nützlich?

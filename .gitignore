@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Build-Ergebnisse
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# Signierung – niemals committen!
+*.jks
+*.keystore
+keystore.properties
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
