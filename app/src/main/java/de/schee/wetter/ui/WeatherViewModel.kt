@@ -30,6 +30,7 @@ data class WeatherUi(
     val warnings: List<Warning> = emptyList(),
     val warningsLoaded: Boolean = false,
     val normalMax: Double? = null,
+    val maps: de.schee.wetter.data.MapImages.Layers? = null,
 )
 
 /**
@@ -82,6 +83,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
                     .onSuccess { w -> _ui.update { it.copy(warnings = w, warningsLoaded = true) }; if (w.isNotEmpty()) AppLog.i(AppLog.Cat.DATEN, "DWD-Warnungen: ${w.joinToString { it.event }}") }
             }
             launch {
+                runCatching { de.schee.wetter.data.MapImages.load(place.lat, place.lon) }.onSuccess { m -> _ui.update { it.copy(maps = m) } }
+            }
+            launch {
                 val today = LocalDate.now(ZoneId.of(_ui.value.forecast?.timezone ?: "Europe/Berlin"))
                 runCatching { climate.normalMax(place.lat, place.lon, today) }.onSuccess { n -> _ui.update { it.copy(normalMax = n) } }
             }
@@ -96,7 +100,7 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     fun choosePlace(p: Place) {
         prefs.edit().putString("manual", JSONObject().put("name", p.name).put("lat", p.lat).put("lon", p.lon).toString()).apply()
         AppLog.i(AppLog.Cat.ORT, "Ort gewählt: ${p.name}")
-        _ui.update { it.copy(place = p, forecast = null, warnings = emptyList(), normalMax = null) }
+        _ui.update { it.copy(place = p, forecast = null, warnings = emptyList(), normalMax = null, maps = null) }
         job?.cancel(); refresh("Ort gewählt")
     }
 

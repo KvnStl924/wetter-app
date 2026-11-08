@@ -96,10 +96,15 @@ fun MainScreen(
     /** Nur für Bildschirmfotos im Test: feste Daten statt Laden. */
     preview: WeatherUi? = null,
     previewNow: LocalDateTime? = null,
+    previewEditTiles: Boolean = false,
 ) {
     val context = LocalContext.current
     val live by vm.ui.collectAsState()
     val ui = preview ?: live
+    val tileState = remember { de.schee.wetter.ui.tiles.TileState(de.schee.wetter.ui.tiles.TileStore(context)) }
+    var editTiles by rememberSaveable { mutableStateOf(previewEditTiles) }
+    var hint by remember { mutableStateOf<String?>(null) }
+    var hintId by remember { mutableIntStateOf(0) }
     val units = remember(ui.forecast) { Units.from(context) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var mode by rememberSaveable { mutableStateOf(Mode.TEMP) }
@@ -116,6 +121,8 @@ fun MainScreen(
     }
 
     // Laden nur, solange die App sichtbar ist
+    androidx.activity.compose.BackHandler(enabled = editTiles) { AppLog.tap("Zurück-Geste → Kacheln bearbeiten beendet"); editTiles = false }
+
     LaunchedEffect(lifecycle) {
         if (preview != null) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -194,10 +201,13 @@ fun MainScreen(
                 }
 
                 if (f != null) {
+                    val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon)
+                    de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); editTiles = true }
                     HourlyCard(f, now, mode, units) { mode = it }
                     DailyCard(f, today, mode, units) { openDay = it }
+                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = { editTiles = it }, onHint = { hint = it; hintId++ })
                     Text(
-                        "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF",
+                        "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
                         style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
@@ -218,8 +228,6 @@ fun MainScreen(
             }
         }
 
-        var hint by remember { mutableStateOf<String?>(null) }
-        var hintId by remember { mutableIntStateOf(0) }
         LaunchedEffect(hintId) { if (hint != null) { delay(2600); hint = null } }
         AnimatedVisibility(
             visible = hint != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut(),

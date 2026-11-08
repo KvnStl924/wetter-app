@@ -1,6 +1,14 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.3.0 – Kacheln
+- 12 Kacheln im iOS-Stil: Unwetterwarnung, Regenradar, Regen nächste 2 Std., Wind (Kompass), Windkarte, Gefühlt, Feuchtigkeit, Niederschlag heute, Sichtweite, Durchschnitt, Sonnenauf-/untergang, Mondphase
+- Amtliche DWD-Unwetterwarnungen für deinen Ort, ganz oben, nur wenn aktiv (Tippen zeigt Details)
+- Regenradar-Kachel mit aktuellem DWD-Radarbild und Kreisgrenzen (Vollbild mit Zeitleiste ab 0.4.0)
+- Mondphase, Mondaufgang und nächster Vollmond werden auf dem Handy berechnet
+- Durchschnitt: Vergleich mit dem Mittel 1991–2020
+- Kacheln bearbeiten: lange auf eine Kachel drücken → verschieben (am Griff ziehen), ausblenden, wieder hinzufügen
+
 ## 0.2.0 – Echte Wetterdaten
 - Standort (nur bei geöffneter App) und Ortsname; ohne Berechtigung Ortssuche
 - Vorhersage aus zwei Modellen: ICON-D2 vom DWD für heute und morgen, ECMWF bis Tag 10

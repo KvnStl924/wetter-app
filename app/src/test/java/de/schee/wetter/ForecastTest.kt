@@ -79,3 +79,46 @@ class ForecastTest {
         assertEquals("N", Units.compass(355))
     }
 }
+
+class TilesTest {
+    @Test fun rowsPairHalfTiles() {
+        val rows = de.schee.wetter.ui.tiles.TileLayout.rows(listOf(
+            de.schee.wetter.ui.tiles.TileId.WIND, de.schee.wetter.ui.tiles.TileId.FEELS, de.schee.wetter.ui.tiles.TileId.HUMIDITY,
+            de.schee.wetter.ui.tiles.TileId.VISIBILITY, de.schee.wetter.ui.tiles.TileId.MOON))
+        org.junit.Assert.assertEquals(listOf(1, 2, 1, 1), rows.map { it.size })
+    }
+
+    @Test fun restoreKeepsSavedAndAddsNew() {
+        val r = de.schee.wetter.ui.tiles.TileLayout.restore("MOON,WIND,UNBEKANNT")
+        org.junit.Assert.assertEquals(de.schee.wetter.ui.tiles.TileId.MOON, r[0])
+        org.junit.Assert.assertEquals(de.schee.wetter.ui.tiles.TileId.entries.size, r.size)
+    }
+
+    @Test fun moveTile() {
+        val l = listOf(de.schee.wetter.ui.tiles.TileId.RADAR, de.schee.wetter.ui.tiles.TileId.WIND, de.schee.wetter.ui.tiles.TileId.MOON)
+        org.junit.Assert.assertEquals(listOf(de.schee.wetter.ui.tiles.TileId.WIND, de.schee.wetter.ui.tiles.TileId.MOON, de.schee.wetter.ui.tiles.TileId.RADAR),
+            de.schee.wetter.ui.tiles.TileLayout.move(l, 0, 2))
+    }
+
+    @Test fun rainSummary() {
+        val t0 = java.time.LocalDateTime.of(2026, 11, 9, 15, 0)
+        fun s(vararg mm: Double) = mm.mapIndexed { i, v -> t0.plusMinutes(15L * i) to v }
+        org.junit.Assert.assertEquals("Kein Regen in den nächsten 2 Stunden", de.schee.wetter.ui.tiles.RainSoon.summary(s(0.0, 0.0, 0.0)))
+        org.junit.Assert.assertEquals("Regen ab etwa 15:30 Uhr", de.schee.wetter.ui.tiles.RainSoon.summary(s(0.0, 0.0, 0.4)))
+        org.junit.Assert.assertEquals("Regen hört gegen 15:15 Uhr auf", de.schee.wetter.ui.tiles.RainSoon.summary(s(0.5, 0.0, 0.0)))
+    }
+
+    @Test fun moonPhaseKnownDates() {
+        // Vollmond am 24.11.2026 (± 1 Tag), Neumond am 09.11.2026 (± 1 Tag)
+        val full = java.time.ZonedDateTime.of(2026, 11, 24, 15, 0, 0, 0, java.time.ZoneId.of("UTC")).toInstant().toEpochMilli()
+        val new = java.time.ZonedDateTime.of(2026, 11, 9, 8, 0, 0, 0, java.time.ZoneId.of("UTC")).toInstant().toEpochMilli()
+        org.junit.Assert.assertTrue(de.schee.wetter.data.Astro.moon(full).illumination > 0.95)
+        org.junit.Assert.assertTrue(de.schee.wetter.data.Astro.moon(new).illumination < 0.05)
+    }
+
+    @Test fun moonriseExists() {
+        val z = java.time.ZoneId.of("Europe/Berlin")
+        val r = de.schee.wetter.data.Astro.nextMoonrise(java.time.ZonedDateTime.of(2026, 11, 9, 0, 0, 0, 0, z), 50.41, 7.42)
+        org.junit.Assert.assertNotNull(r)
+    }
+}

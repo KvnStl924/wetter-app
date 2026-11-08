@@ -46,17 +46,35 @@ class ScreenshotDump {
     }
 
     /** Sehr hohes Fenster, damit die ganze Seite auf ein Bild passt. */
-    @Test @Config(qualifiers = "w411dp-h3000dp-xxhdpi")
+    @Test @Config(qualifiers = "w411dp-h5200dp-xxhdpi")
     fun mainFull() {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
         val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis())
         val ui = WeatherUi(place = Place("Saffig", 50.41, 7.42, true), forecast = f, normalMax = 9.0,
-            warnings = de.schee.wetter.data.WarningsRepository.parse(res("warnings.json")))
+            warnings = de.schee.wetter.data.WarningsRepository.parse(res("warnings.json")), maps = maps())
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = f.days[0].sunset!!.minusMinutes(20)) } } }
         settle()
         save(activity.window.decorView, File(target, "main_full.png").also { it.parentFile?.mkdirs() })
+    }
+
+    @Test @Config(qualifiers = "w411dp-h2000dp-xxhdpi")
+    fun editTiles() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis())
+        val ui = WeatherUi(place = Place("Saffig", 50.41, 7.42, true), forecast = f)
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = f.days[0].sunrise!!.plusHours(3), previewEditTiles = true) } } }
+        settle()
+        save(activity.window.decorView, File(target, "edit_tiles.png").also { it.parentFile?.mkdirs() })
+    }
+
+    private fun maps(): de.schee.wetter.data.MapImages.Layers {
+        val bytes = javaClass.classLoader!!.getResource("kreise.png")!!.readBytes()
+        val b = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        return de.schee.wetter.data.MapImages.Layers(de.schee.wetter.data.MapImages.bordersOnly(b), null, 0L)
     }
 
     private fun settle() { repeat(6) { ShadowLooper.idleMainLooper(200, java.util.concurrent.TimeUnit.MILLISECONDS) } }
