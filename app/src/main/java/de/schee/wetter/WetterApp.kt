@@ -23,6 +23,7 @@ class WetterApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLog.init(this)
+        DriveSync.initCache(this)
         installCrashHandler()
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = onAppOpened()

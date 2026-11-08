@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.1.1 – Fehlerbehebungen
+- Drive: Ordner werden nicht mehr doppelt angelegt (z. B. zweimal „Logs“)
+- Leiste unten: Karten-Knopf und Ortspunkte zeigen jetzt einen Hinweis, wann sie freigeschaltet werden
 
 ## 0.1.0 – Grundgerüst
 - Dunkler, animierter Hintergrund nach Wetter und Tageszeit (zum Ausprobieren auf dem Hauptbildschirm)

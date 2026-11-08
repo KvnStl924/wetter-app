@@ -110,9 +110,35 @@ fun MainScreen(onOpenSettings: () -> Unit) {
             Spacer(Modifier.height(96.dp))
         }
 
+        var hint by remember { mutableStateOf<String?>(null) }
+        var hintId by remember { mutableStateOf(0) }
+        androidx.compose.runtime.LaunchedEffect(hintId) {
+            if (hint != null) { kotlinx.coroutines.delay(2600); hint = null }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = hint != null,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 74.dp, start = 24.dp, end = 24.dp),
+        ) {
+            Text(
+                hint ?: "",
+                style = WType.small,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 16.dp, vertical = 11.dp),
+            )
+        }
+
         BottomBar(
             Modifier.align(Alignment.BottomCenter),
-            onMap = { AppLog.tap("Leiste unten → Karte (kommt mit 0.4.0)") },
+            onMap = {
+                AppLog.tap("Leiste unten → Karte (Hinweis: kommt mit 0.4.0)")
+                hint = "Die Regenradar-Karte kommt mit Version 0.4.0."; hintId++
+            },
+            onPlaces = {
+                AppLog.tap("Leiste unten → Ortspunkte (Hinweis: kommt mit 0.5.0)")
+                hint = "Weitere Orte zum Wischen kommen mit Version 0.5.0."; hintId++
+            },
             onList = onOpenSettings,
         )
     }
@@ -164,7 +190,7 @@ private fun HourlyDemo(weather: SkyWeather, time: SkyTime) {
 }
 
 @Composable
-private fun BottomBar(modifier: Modifier, onMap: () -> Unit, onList: () -> Unit) {
+private fun BottomBar(modifier: Modifier, onMap: () -> Unit, onPlaces: () -> Unit, onList: () -> Unit) {
     Row(
         modifier
             .fillMaxWidth()
@@ -176,7 +202,7 @@ private fun BottomBar(modifier: Modifier, onMap: () -> Unit, onList: () -> Unit)
     ) {
         RoundButton("map", onMap)
         Row(
-            Modifier.clip(RoundedCornerShape(50)).background(WColors.Glass).padding(horizontal = 14.dp, vertical = 9.dp),
+            Modifier.clip(RoundedCornerShape(50)).background(WColors.Glass).clickable { onPlaces() }.padding(horizontal = 14.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("➤", style = WType.label.copy(color = WColors.Text))

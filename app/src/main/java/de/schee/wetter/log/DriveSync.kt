@@ -108,12 +108,39 @@ object DriveSync {
 
     private fun root(tree: Uri): Uri = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
 
+    /**
+     * Gefundene/angelegte Ordner werden gemerkt. Grund: Die Drive-Anbindung von Android zeigt
+     * neu angelegte Ordner erst mit Verzögerung in der Liste – ohne Merken entstanden Duplikate
+     * (zweimal „Logs“, gefunden im Log vom 08.11.2026).
+     */
+    private val folderCache = mutableMapOf<String, Uri>()
+    private var cachePrefs: android.content.SharedPreferences? = null
+
+    fun initCache(context: Context) {
+        cachePrefs = context.getSharedPreferences("drive_folders", Context.MODE_PRIVATE)
+    }
+
     @Synchronized
     fun folder(resolver: ContentResolver, tree: Uri, vararg path: String): Uri {
+        val key = tree.toString() + "|" + path.joinToString("/")
+        val known = folderCache[key] ?: cachePrefs?.getString(key, null)?.let(Uri::parse)
+        if (known != null && exists(resolver, known)) return known.also { folderCache[key] = it }
         var current = root(tree)
-        for (name in path) current = child(resolver, tree, current, name)
+        val walked = mutableListOf<String>()
+        for (name in path) {
+            walked += name
+            val subKey = tree.toString() + "|" + walked.joinToString("/")
+            val subKnown = folderCache[subKey] ?: cachePrefs?.getString(subKey, null)?.let(Uri::parse)
+            current = if (subKnown != null && exists(resolver, subKnown)) subKnown else child(resolver, tree, current, name)
+            folderCache[subKey] = current
+            cachePrefs?.edit()?.putString(subKey, current.toString())?.apply()
+        }
         return current
     }
+
+    private fun exists(resolver: ContentResolver, doc: Uri): Boolean = runCatching {
+        resolver.query(doc, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)?.use { it.moveToFirst() } ?: false
+    }.getOrDefault(false)
 
     private fun child(resolver: ContentResolver, tree: Uri, parent: Uri, name: String): Uri {
         list(resolver, tree, parent).firstOrNull { it.mime == DocumentsContract.Document.MIME_TYPE_DIR && it.name == name }?.let {
