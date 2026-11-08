@@ -45,7 +45,7 @@ jobs:
 
       - name: APK als Artifact hochladen
         if: steps.check.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wetter-app-debug
           path: app/build/outputs/apk/debug/*.apk
