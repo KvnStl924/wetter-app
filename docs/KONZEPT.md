@@ -244,3 +244,18 @@ Beispiel-Zeilen:
 - Europa/Ausland (Radar außerhalb DE, MeteoAlarm-Warnungen)
 - Pollen, Luftqualität, UV-Index, Luftdruck als Kacheln
 - Weitere Sprachen
+
+## 12. Versionsnummern und Veröffentlichung
+
+- Schema **`vX.Y.Z`**: X = großes Update (neue Funktion, neue Oberfläche), Y = kleines Update,
+  Z = Fehlerbehebung. Start bei `v0.1.0`.
+- Während des Aufbaus: jede fertige Phase erhöht Y (Phase 1 = `0.1.0` … Phase 6 = `0.6.0`),
+  Fehlerbehebungen erhöhen Z. Wenn alles fertig und stabil ist: `1.0.0`.
+- Android-`versionCode` = X·10000 + Y·100 + Z.
+- Veröffentlichen: Tag `vX.Y.Z` → GitHub Actions baut, signiert und erstellt das Release mit APK,
+  SHA-256-Prüfsumme und Änderungstext. Die APK kommt zusätzlich nach Drive
+  „02 APK - zum Installieren“ (`Wetter-vX.Y.Z.apk`).
+- **Signierschlüssel:** ein fester Schlüssel ab der allerersten APK, als GitHub-Secret und als
+  Sicherung in Drive „07 Signierschlüssel - privat“. Ohne denselben Schlüssel lässt Android kein Update zu.
+- Update-Knopf: GitHub Releases API (öffentlich, kein Token), Download mit Fortschritt,
+  Prüfsumme kontrollieren, Installation über den Android-Installer.
