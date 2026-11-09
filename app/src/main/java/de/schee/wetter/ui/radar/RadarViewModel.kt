@@ -104,6 +104,8 @@ class RadarViewModel : ViewModel() {
 
     private var viewJob: Job? = null
     private var viewPauseUntil = 0L
+    /** Abrufe der letzten Minute (Zeitpunkt, Gitterpunkte). */
+    private val budget = ArrayDeque<Pair<Long, Int>>()
 
     /**
      * Sichtbarer Ausschnitt nach dem Verschieben/Zoomen: Liegt er (teilweise) außerhalb des Deutschland-Gitters,
@@ -120,6 +122,16 @@ class RadarViewModel : ViewModel() {
         viewJob?.cancel()
         viewJob = viewModelScope.launch {
             kotlinx.coroutines.delay(wait)
+            // Budget: höchstens 300 Gitterpunkte pro Minute für Ausschnitte (Open-Meteo erlaubt 600 –
+            // der Rest bleibt für Vorhersage und Deutschland-Gitter). Sonst warten statt abgelehnt zu werden.
+            val points = WindGrid.VIEW_POINTS * WindGrid.VIEW_POINTS
+            while (true) {
+                val now = System.currentTimeMillis()
+                budget.removeAll { now - it.first > 60_000 }
+                if (budget.sumOf { it.second } + points <= 300) break
+                kotlinx.coroutines.delay((60_000 - (now - budget.first().first)).coerceAtLeast(500))
+            }
+            budget += System.currentTimeMillis() to points
             viewPauseUntil = System.currentTimeMillis() + 5_000
             val spec = WindGrid.viewSpec(south, north, west, east)
             val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Wind + Regen)") } }

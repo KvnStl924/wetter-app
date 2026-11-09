@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.10 – Temperatur und Wind weltweit zuverlässig
+- Beim weiten Herauszoomen blieb nur ein Rechteck mit Werten: Open-Meteo hatte wegen zu vieler Abrufe kurz abgelehnt
+- Die App lädt jetzt ein doppelt so großes Gebiet wie sichtbar (weniger Nachladen) und hält ein Abruf-Budget ein – sie wartet kurz statt abgelehnt zu werden
+
 ## 0.4.9 – Neue Bedienung im Radar, Werte an Großstädten
 - Oben keine Knöpfe mehr; unten rechts über der Zeitleiste eine Spalte mit Standort, Regen, Wind und Temperatur
 - Regen, Wind und Temperatur sind Schalter und lassen sich kombinieren (z. B. Regen + Wind); mit Regen folgen Wind und Temperatur der Radar-Zeitleiste

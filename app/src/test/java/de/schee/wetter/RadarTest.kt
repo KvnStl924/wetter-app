@@ -66,6 +66,7 @@ class RadarTest {
         assertEquals(154, WindGrid.GERMANY.rows * WindGrid.GERMANY.cols)
         // weit herausgezoomt (größer als die Erde) darf nicht abstürzen
         val s = WindGrid.viewSpec(-89.0, 89.0, -400.0, 400.0); assertTrue(s.lat0 >= -80.0 && s.lat0 + s.step * (s.rows - 1) <= 80.0001)
+        assertTrue(s.step * (s.cols - 1) >= 359.0) // ganze Erde in der Länge
         assertTrue(g.hours.size >= 12)
         val out = DoubleArray(2)
         g.at(0, 50.5, 7.0, out)

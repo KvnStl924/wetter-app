@@ -38,15 +38,18 @@ class WindGrid(
 
         /** Grobes Gitter über einem Ausschnitt (mit Rand), Breite auf ±80° begrenzt. */
         fun viewSpec(south: Double, north: Double, west: Double, east: Double): Spec {
-            val span = maxOf(north - south, east - west) * 1.3
-            // höchstens die ganze Erde (160° Breite, 360° Länge) – sonst Absturz bei weit herausgezoomter Karte (09.11.2026)
-            val step = (span / (VIEW_POINTS - 1)).coerceIn(0.25, 160.0 / (VIEW_POINTS - 1))
-            val cLat = (south + north) / 2; val cLon = (west + east) / 2
-            val lat0 = (cLat - step * (VIEW_POINTS - 1) / 2).coerceIn(-80.0, 80.0 - step * (VIEW_POINTS - 1))
-            val lon0 = cLon - step * (VIEW_POINTS - 1) / 2
+            // doppelt so groß wie sichtbar: kleines Verschieben/Zoomen braucht keinen neuen Abruf
+            val span = maxOf(north - south, east - west) * 2.0
+            // höchstens die ganze Erde: 360° Länge; in der Breite ±80° (dann weniger Reihen) –
+            // sonst Absturz bzw. Lücken bei weit herausgezoomter Karte (09.11.2026)
+            val step = (span / (VIEW_POINTS - 1)).coerceIn(0.25, 360.0 / (VIEW_POINTS - 1))
+            val rows = minOf(VIEW_POINTS, (160.0 / step).toInt() + 1)
             // auf das Raster runden, damit nahe Ausschnitte dieselbe Anfrage ergeben
             fun r(x: Double) = Math.round(x / step * 2) * step / 2
-            return Spec(r(lat0), r(lon0), step, VIEW_POINTS, VIEW_POINTS)
+            val cLat = (south + north) / 2; val cLon = (west + east) / 2
+            val lat0 = r(cLat - step * (rows - 1) / 2).coerceIn(-80.0, 80.0 - step * (rows - 1))
+            val lon0 = r(cLon - step * (VIEW_POINTS - 1) / 2)
+            return Spec(lat0, lon0, step, rows, VIEW_POINTS)
         }
 
         fun url(s: Spec): String {
