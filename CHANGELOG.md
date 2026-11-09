@@ -1,6 +1,16 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.5.3 – Radar überarbeitet
+- Sofort bereit: Temperatur, Wind, Wolken und Blitze werden beim Öffnen der App für die ganze Welt geladen (und auf dem Handy zwischengespeichert) – beim Wischen und Zoomen wird nichts mehr nachgeladen
+- Immer nur eine Ebene: Regen, Wind, Temperatur oder Wolken; Blitze lassen sich zum Regen dazuschalten
+- Temperatur und Wind weltweit als feine, weiche Farbfläche (DWD-Modell ICON) – keine Kanten, keine Lücken, auch über dem Pazifik
+- Werte an Städten auf der ganzen Welt und an auffälligen Stellen (heiß, kalt, windig) statt im festen Raster
+- Blitze als Punkte: neue rot-gelb mit Leuchtring, ältere gelb, dann orange (letzte Stunde)
+- Wolken weich und ohne Kanten; kalter Boden (Winter, Polargebiete) wird nicht mehr als Wolke gezeigt
+- Schlichtere Karte: nur Land, Wasser, Grenzen und Orte – keine Straßen, Bahnen und Gebäude mehr
+- Bedienfeld unten aufgeräumt: eine Legende, kurze Quellenangabe
+
 ## 0.5.2 – Wolken und Blitze im Radar
 - Neue Ebene „Wolken“: Satellitenbild (EUMETSAT) – über Europa, Afrika und dem Atlantik alle 10 Minuten, sonst weltweit alle 3 Stunden; Wolken weiß, wolkenfreie Gebiete durchsichtig
 - Neue Ebene „Blitze“: Blitze der letzten Minuten vom Satelliten MTG (Europa, Afrika, Atlantik), alle 5 Minuten neu

@@ -39,13 +39,13 @@ class MainActivity : ComponentActivity() {
             WetterTheme {
                 var screen by rememberSaveable { mutableStateOf("main") }
                 val weather by viewModel<WeatherViewModel>().ui.collectAsState()
-                // Radar und Wind schon beim Öffnen der App vorladen, damit das Vollbild-Radar sofort bereit ist.
+                // Radar, Temperatur/Wind weltweit, Wolken und Blitze schon beim Öffnen der App vorladen → Radar sofort bereit.
                 // Nur solange die App sichtbar ist – beim Verlassen wird abgebrochen (keine Hintergrundarbeit).
                 val radarVm = viewModel<de.schee.wetter.ui.radar.RadarViewModel>()
                 val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-                        radarVm.load(); radarVm.loadWind()
+                        radarVm.preload()
                         try { kotlinx.coroutines.awaitCancellation() } finally { radarVm.stop() }
                     }
                 }

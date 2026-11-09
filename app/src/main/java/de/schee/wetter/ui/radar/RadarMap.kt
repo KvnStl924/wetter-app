@@ -17,31 +17,36 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import de.schee.wetter.data.RadarData
-import de.schee.wetter.data.WindGrid
 import de.schee.wetter.data.RainViewer
+import de.schee.wetter.data.Satellite
+import de.schee.wetter.data.WindGrid
 import de.schee.wetter.log.AppLog
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.ImageSource
+import kotlin.math.pow
 
 private const val STYLE = "https://tiles.openfreemap.org/styles/dark"
 
 private fun quad(west: Double, east: Double, south: Double, north: Double) =
     LatLngQuad(LatLng(north, west), LatLng(north, east), LatLng(south, east), LatLng(south, west))
 
+/** Ganze Welt (Mercator, ±85°) – für die vorgeladenen Weltbilder. */
+private val WORLD = quad(-180.0, 180.0, -Satellite.MAX_LAT, Satellite.MAX_LAT)
+
 /**
- * Die Karte (MapLibre, dunkler Stil von OpenFreeMap, Daten © OpenStreetMap).
- * Radar und Windfarbe liegen als Bild-Ebenen unter den Ortsnamen.
- * Die Karte lebt nur, solange der Bildschirm offen ist (Lebenszyklus wird weitergereicht).
+ * Die Karte (MapLibre, schlichter dunkler Stil auf Basis von OpenFreeMap, Daten © OpenStreetMap).
+ * Alle Wetterbilder liegen unter den Ortsnamen. Die Weltbilder (Temperatur/Wind, Wolken) sind schon
+ * vorgeladen – beim Verschieben wird nichts nachgeladen.
  */
 @Composable
 fun RadarMap(
@@ -52,18 +57,16 @@ fun RadarMap(
     rainViewer: List<RainViewer.Frame>, rvIndex: Int?,
     /** Regen-Modell (Zukunft) außerhalb Deutschlands: grobes Gitter des sichtbaren Ausschnitts mit Bild. */
     precipView: Pair<WindGrid, Bitmap>?,
-    /** Farbfläche Wind oder Temperatur: grobes Ausschnitt-Gitter und feines Deutschland-Gitter. */
-    fieldView: Pair<WindGrid, Bitmap>?,
-    fieldBase: Pair<WindGrid, Bitmap>?,
+    /** Farbfläche Temperatur oder Wind (Weltbild, Mercator ±85°). */
+    field: Bitmap?,
+    /** Wolken (Weltbild, Mercator ±85°). */
+    clouds: Bitmap?,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
-    /** Großstädte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen). */
-    onCities: (List<MapCity>) -> Unit = {},
+    /** Orte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen), mit dem Ausschnitt dazu. */
+    onCities: (List<MapCity>, MapTransform?) -> Unit = { _, _ -> },
     /** Kachel-Modus: kleine, nicht bedienbare Karte (kein Verschieben/Zoomen, keine Knöpfe), Zoomstufe fest. */
     mini: Boolean = false,
-    /** Wolken (Satellitenbild des Ausschnitts) und Blitze (Kacheln) – null/false = aus. */
-    clouds: de.schee.wetter.data.Satellite.View? = null,
-    lightning: Boolean = false,
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -101,7 +104,6 @@ fun RadarMap(
 
     LaunchedEffect(view) {
         val started = System.currentTimeMillis()
-        // Etwas hellerer Stil mit deutschen Ortsnamen; ohne Netz der Originalstil.
         val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { de.schee.wetter.data.MapStyle.load(context) }
         view.getMapAsync { m ->
             map = m
@@ -112,46 +114,54 @@ fun RadarMap(
                 setAttributionMargins(24, 0, 0, (context.resources.displayMetrics.density * 210).toInt())
                 if (mini) setAllGesturesEnabled(false)
             }
-            // weltweit: frei verschiebbar, von der Weltkarte bis zur Stadt
             m.setMinZoomPreference(1.5); m.setMaxZoomPreference(11.5)
             val target = place?.let { LatLng(it.lat, it.lon) } ?: LatLng(51.1, 10.4)
             m.cameraPosition = CameraPosition.Builder().target(target).zoom(if (mini) 7.0 else if (place != null) 7.2 else 5.4).build()
-            fun send() {
-                val b = m.projection.visibleRegion.latLngBounds
-                if (view.width > 0) report(MapTransform(b.longitudeWest, b.longitudeEast, b.latitudeNorth, b.latitudeSouth, view.width.toFloat(), view.height.toFloat()))
+            /**
+             * Ausschnitt aus Mitte und Zoom berechnen – nicht aus den Ecken: die Ecken springen an der
+             * Datumsgrenze (180°) auf −180°, dann stimmten Werte und Windlinien im Pazifik nicht (bis 0.5.2).
+             */
+            fun current(): MapTransform? {
+                if (view.width <= 0) return null
+                val cam = m.cameraPosition
+                val c = cam.target ?: return null
+                // MapLibre: die Welt ist bei Zoom z genau 512 · 2^z dp breit
+                val span = 360.0 * (view.width / context.resources.displayMetrics.density) / (512.0 * 2.0.pow(cam.zoom))
+                val vr = m.projection.visibleRegion
+                return MapTransform(c.longitude - span / 2, c.longitude + span / 2, vr.farLeft!!.latitude, vr.nearLeft!!.latitude, view.width.toFloat(), view.height.toFloat())
             }
+            fun send() { current()?.let { report(it) } }
             m.addOnCameraMoveListener { send() }
-            // Großstädte aus den Beschriftungs-Ebenen des Kartenstils (weltweit), größte zuerst
+            // Orte aus den Beschriftungs-Ebenen des Kartenstils (die Karte hat sie schon so verteilt, dass nichts überlappt)
             fun cities() {
                 runCatching {
                     val rect = android.graphics.RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
-                    val found = m.queryRenderedFeatures(rect, "place_city_large", "place_city")
-                        .sortedBy { f -> if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 99 }
-                        .mapNotNull { f ->
-                        val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
-                        val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
-                        MapCity(name, p.latitude(), p.longitude())
-                    }.distinctBy { it.name }
-                    reportCities(found)
+                    val layers = listOf("place_city_large", "place_city", "place_town", "place_village")
+                    val found = layers.flatMapIndexed { li, layer ->
+                        m.queryRenderedFeatures(rect, layer).mapNotNull { f ->
+                            val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
+                            val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
+                            val rank = if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 20
+                            MapCity(name, p.latitude(), p.longitude(), li * 100 + rank, fromMap = true)
+                        }
+                    }.sortedBy { it.rank }.distinctBy { it.name }
+                    reportCities(found, current())
                 }
             }
             m.addOnCameraIdleListener { send(); cities() }
-            // auch wenn nach dem Laden neue Kartenstücke (mit Ortsnamen) angezeigt wurden
             view.addOnDidBecomeIdleListener { cities() }
             m.setStyle(if (json != null) Style.Builder().fromJson(json) else Style.Builder().fromUri(STYLE)) { s ->
                 AppLog.data("Karte geladen (${System.currentTimeMillis() - started} ms)")
                 val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
                 val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-                val g = WindGrid.GERMANY
-                s.addSource(ImageSource("view", quad(0.0, 1.0, 0.0, 1.0), empty))
-                s.addSource(ImageSource("wind", quad(g.lon0 - g.step / 2, g.lon0 + (g.cols - 0.5) * g.step, g.lat0 - g.step / 2, g.lat0 + (g.rows - 0.5) * g.step), empty))
-                s.addSource(ImageSource("clouds", quad(0.0, 1.0, 0.0, 1.0), empty))
+                s.addSource(ImageSource("field", WORLD, empty))
+                s.addSource(ImageSource("clouds", WORLD, empty))
                 s.addSource(ImageSource("precip", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
-                // Reihenfolge von unten nach oben: Ausschnitt-Gitter, Wind Deutschland, Wolken, (RainViewer), DWD-Radar, Blitze, Ortsnamen
-                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("clouds-layer", "clouds", 0.95f),
+                // Reihenfolge von unten nach oben: Temperatur/Wind, Wolken, Modell-Regen, (RainViewer), DWD-Radar, Ortsnamen
+                listOf(raster("field-layer", "field", 1f), raster("clouds-layer", "clouds", 1f),
                     raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
                     if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
                 }
@@ -171,69 +181,34 @@ fun RadarMap(
             }
             s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 512))
             s.addLayerBelow(RasterLayer("rv-layer-$i", "rv-$i").withProperties(
-                PropertyFactory.rasterOpacity(0f), PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
+                PropertyFactory.rasterOpacity(0f), PropertyFactory.visibility(Property.NONE), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
         }
     }
     LaunchedEffect(style, rainViewer, rvIndex) {
         val s = style ?: return@LaunchedEffect
-        // Nur aktuelles und nächstes Bild laden (unsichtbare Ebenen mit visibility=none laden keine Kacheln).
         // Über alle vorhandenen RainViewer-Ebenen gehen – nicht nur über die aktuelle Liste: beim Abwählen
         // von „Regen“ ist die Liste leer, die Ebenen müssen aber trotzdem ausgeblendet werden (Fehler bis 0.5.1).
         s.layers.mapNotNull { it.id.removePrefix("rv-layer-").takeIf { r -> r != it.id }?.toIntOrNull() }.forEach { i ->
             val active = rvIndex != null && (i == rvIndex || i == rvIndex + 1)
             s.getLayer("rv-layer-$i")?.setProperties(
-                PropertyFactory.visibility(if (active) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE),
+                PropertyFactory.visibility(if (active) Property.VISIBLE else Property.NONE),
                 PropertyFactory.rasterOpacity(if (i == rvIndex) 0.8f else 0f))
         }
     }
 
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.
     val empty = remember { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
-    LaunchedEffect(style, radar) {
-        (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty)
-    }
-    LaunchedEffect(style, fieldBase) {
-        (style?.getSource("wind") as? ImageSource)?.setImage(fieldBase?.second ?: empty)
-    }
-    fun setGrid(id: String, v: Pair<WindGrid, Bitmap>?) {
-        val src = style?.getSource(id) as? ImageSource ?: return
-        if (v == null) { src.setImage(empty); return }
+    LaunchedEffect(style, radar) { (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty) }
+    LaunchedEffect(style, field) { (style?.getSource("field") as? ImageSource)?.setImage(field ?: empty) }
+    LaunchedEffect(style, clouds) { (style?.getSource("clouds") as? ImageSource)?.setImage(clouds ?: empty) }
+    LaunchedEffect(style, precipView) {
+        val src = style?.getSource("precip") as? ImageSource ?: return@LaunchedEffect
+        val v = precipView
+        if (v == null) { src.setImage(empty); return@LaunchedEffect }
         val g = v.first
         src.setCoordinates(quad(g.lon0 - g.step / 2, g.lon1 + g.step / 2, (g.lat0 - g.step / 2).coerceAtLeast(-85.0), (g.lat1 + g.step / 2).coerceAtMost(85.0)))
         src.setImage(v.second)
     }
-    LaunchedEffect(style, fieldView) { setGrid("view", fieldView) }
-    LaunchedEffect(style, clouds) {
-        val src = style?.getSource("clouds") as? ImageSource ?: return@LaunchedEffect
-        val c = clouds
-        if (c == null) { src.setImage(empty); return@LaunchedEffect }
-        src.setCoordinates(quad(c.west, c.east, c.south, c.north))
-        src.setImage(c.bitmap)
-    }
-
-    // Blitze: WMS-Kacheln von EUMETSAT; alle 5 Minuten neue Adresse (= neue Daten), nur solange eingeschaltet.
-    val lightningUrl = remember { arrayOfNulls<String>(1) }
-    LaunchedEffect(style, lightning) {
-        val s = style ?: return@LaunchedEffect
-        if (!lightning) { s.getLayer("lightning-layer")?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)); return@LaunchedEffect }
-        while (true) {
-            val url = de.schee.wetter.data.Satellite.lightningTiles()
-            val src = s.getSource("lightning") as? org.maplibre.android.style.sources.RasterSource
-            if (src == null || lightningUrl[0] != url) {
-                lightningUrl[0] = url
-                s.getLayer("lightning-layer")?.let { s.removeLayer(it) }
-                src?.let { s.removeSource(it) }
-                val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", url).apply { attribution = de.schee.wetter.data.Satellite.ATTRIBUTION; maxZoom = 9f }
-                s.addSource(org.maplibre.android.style.sources.RasterSource("lightning", tiles, 256))
-                val layer = RasterLayer("lightning-layer", "lightning").withProperties(PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterOpacity(0.95f))
-                val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
-                if (labels != null) s.addLayerBelow(layer, labels) else s.addLayer(layer)
-            }
-            s.getLayer("lightning-layer")?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
-            kotlinx.coroutines.delay(60_000)
-        }
-    }
-    LaunchedEffect(style, precipView) { setGrid("precip", precipView) }
 
     // Kachel: immer auf den aktuellen Ort ausgerichtet
     LaunchedEffect(map, place?.lat, place?.lon) {

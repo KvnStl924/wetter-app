@@ -1,9 +1,13 @@
 package de.schee.wetter.ui.radar
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import de.schee.wetter.data.DwdWorld
 import de.schee.wetter.data.RadarData
+import de.schee.wetter.data.Satellite
 import de.schee.wetter.data.WindGrid
+import de.schee.wetter.data.WorldWeather
 import de.schee.wetter.log.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,47 +15,66 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
-/** Zustand des Vollbild-Radars. Lädt nur, solange der Bildschirm offen ist (kein Hintergrund). */
+/** Zustand des Radars. Geladen wird nur bei geöffneter App (kein Hintergrund). */
 data class RadarUi(
     val frames: List<RadarData.Frame> = emptyList(),
     /** Index → PNG-Bytes; fehlt ein Eintrag, ist das Bild noch nicht da; null = keine Daten. */
     val bytes: Map<Int, ByteArray?> = emptyMap(),
     val nowIndex: Int = 0,
     val error: String? = null,
-    val wind: WindGrid? = null,
-    /** Grobes Gitter über dem sichtbaren Ausschnitt (außerhalb von Deutschland). */
+    /** Grobes Gitter über dem sichtbaren Ausschnitt – nur noch für den Modell-Regen der Zukunft außerhalb Deutschlands. */
     val windView: WindGrid? = null,
     /** Weltweites Radar (RainViewer), leer wenn nicht erreichbar. */
     val rainViewer: List<de.schee.wetter.data.RainViewer.Frame> = emptyList(),
-    val windError: String? = null,
+    /** Temperatur und Wind weltweit (DWD ICON), je volle Stunde. */
+    val world: Map<Instant, WorldWeather> = emptyMap(),
+    /** Erste Stunde der Zeitleiste (jetzt). */
+    val worldStart: Instant? = null,
+    val worldError: String? = null,
+    /** Wolken weltweit (Satellit). */
+    val clouds: Satellite.Clouds? = null,
+    val cloudsError: String? = null,
+    /** Blitze der letzten Stunde (Satellit), neueste zuletzt. */
+    val strikes: List<Satellite.Strike> = emptyList(),
+    val strikesNewest: Instant? = null,
 ) {
     val loaded get() = bytes.size
+    /** Stunden der Zeitleiste für Temperatur/Wind: jetzt … +12 h. */
+    val worldHours: List<Instant> get() = worldStart?.let { s -> (0..12).map { s.plusSeconds(it * 3600L) } } ?: emptyList()
+    val worldNow: WorldWeather? get() = worldStart?.let { world[it] }
 }
 
-class RadarViewModel : ViewModel() {
-    private val _ui = MutableStateFlow(cache?.takeIf { System.currentTimeMillis() - cacheAt < 5 * 60_000 } ?: RadarUi())
+class RadarViewModel(app: Application) : AndroidViewModel(app) {
+    private val _ui = MutableStateFlow(cache ?: RadarUi())
     val ui: StateFlow<RadarUi> = _ui
     private var job: Job? = null
-    private var windJob: Job? = null
+    private var worldJob: Job? = null
+    private var hoursJob: Job? = null
+    private var cloudJob: Job? = null
+    private var lightningJob: Job? = null
 
     companion object {
-        // Zwischenspeicher für erneutes Öffnen innerhalb von 5 Minuten (nur im Speicher, solange die App lebt).
+        // Solange die App lebt: Zwischenspeicher im Speicher (zusätzlich liegen Weltdaten als Datei im Cache).
         private var cache: RadarUi? = null
-        private var cacheAt = 0L
-        private var windAt = 0L
-        private var cloudCache: de.schee.wetter.data.Satellite.View? = null
+        private var radarAt = 0L
+        private var cloudsAt = 0L
+        private var strikesAt = 0L
     }
+
+    private fun set(f: (RadarUi) -> RadarUi) { _ui.update(f); cache = _ui.value }
+
+    // ---------------------------------------------------------------- Regen (DWD + RainViewer)
 
     fun load() {
         if (job?.isActive == true) return
-        if (_ui.value.frames.isNotEmpty() && System.currentTimeMillis() - cacheAt < 5 * 60_000) return
-        if (_ui.value.frames.isNotEmpty()) _ui.value = RadarUi(wind = _ui.value.wind, windView = _ui.value.windView) // älter als 5 Minuten → neu laden
+        if (_ui.value.frames.isNotEmpty() && System.currentTimeMillis() - radarAt < 5 * 60_000) return
         job = viewModelScope.launch(Dispatchers.IO) {
             val started = System.currentTimeMillis()
             // Jüngste Messung finden: geschätzte Zeit, sonst 5 bzw. 10 Minuten früher.
@@ -64,13 +87,13 @@ class RadarViewModel : ViewModel() {
             }
             if (nowBytes == null) {
                 AppLog.data("Radar: aktuelles Bild nicht erreichbar")
-                _ui.value = _ui.value.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.")
+                set { it.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.") }
                 return@launch
             }
             val rv = runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
             val frames = RadarData.frames(latest)
             val nowIndex = frames.indexOfFirst { it.minutes == 0 }
-            _ui.value = RadarUi(frames, mapOf(nowIndex to nowBytes), nowIndex, wind = _ui.value.wind, windView = _ui.value.windView, rainViewer = rv)
+            set { it.copy(frames = frames, bytes = mapOf(nowIndex to nowBytes), nowIndex = nowIndex, error = null, rainViewer = rv) }
             // Reihenfolge: von „Jetzt“ aus abwechselnd vor und zurück, damit das Abspielen schnell beginnen kann.
             val order = frames.indices.filter { it != nowIndex }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
             val gate = Semaphore(4)
@@ -80,51 +103,111 @@ class RadarViewModel : ViewModel() {
                     gate.withPermit {
                         val b = runCatching { RadarData.fetch(frames[i]) }.getOrNull()
                         if (b == null) missing.incrementAndGet()
-                        synchronized(this@RadarViewModel) { _ui.value = _ui.value.copy(bytes = _ui.value.bytes + (i to b)) }
+                        set { it.copy(bytes = it.bytes + (i to b)) }
                     }
                 }
             }.awaitAll()
             val kb = _ui.value.bytes.values.sumOf { it?.size ?: 0 } / 1024
             AppLog.data("Radar: ${frames.size - missing.get()}/${frames.size} Bilder geladen (${System.currentTimeMillis() - started} ms, $kb kB, jüngste Messung $latest)")
-            cache = _ui.value; cacheAt = System.currentTimeMillis()
+            radarAt = System.currentTimeMillis()
         }
     }
 
-    fun loadWind() {
-        if (windJob?.isActive == true) return
-        if (_ui.value.wind != null && System.currentTimeMillis() - windAt < 30 * 60_000) return
-        windJob = viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(WindGrid.GERMANY, "Open-Meteo Windgitter Deutschland") } }
-            _ui.value = r.fold(
-                { windAt = System.currentTimeMillis(); _ui.value.copy(wind = it, windError = null) },
-                { _ui.value.copy(windError = "Winddaten gerade nicht erreichbar.") },
-            )
-            if (_ui.value.frames.isNotEmpty()) cache = _ui.value
+    // ---------------------------------------------------------------- Temperatur + Wind weltweit (DWD)
+
+    private suspend fun loadHour(time: Instant): WorldWeather? = withContext(Dispatchers.IO) {
+        val ctx = getApplication<Application>()
+        val t = async { runCatching { DwdWorld.load(ctx, DwdWorld.Field.TEMP, time) }.getOrNull() }
+        val w = async { runCatching { DwdWorld.load(ctx, DwdWorld.Field.WIND, time) }.getOrNull() }
+        val tg = t.await(); val wg = w.await()
+        if (tg == null && wg == null) null else WorldWeather(time, tg, wg)
+    }
+
+    /** Aktuelle Stunde laden (beim Öffnen der App). */
+    fun loadWorld() {
+        if (worldJob?.isActive == true) return
+        val start = DwdWorld.hourOf(Instant.now())
+        if (_ui.value.worldStart == start && _ui.value.world[start] != null) return
+        worldJob = viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            // neue Stunde: alte Stunden davor verwerfen
+            set { it.copy(worldStart = start, world = it.world.filterKeys { k -> !k.isBefore(start) }) }
+            var ww = loadHour(start)
+            if (ww == null) ww = loadHour(start.minusSeconds(3600)) // DWD noch nicht so weit → eine Stunde früher
+            if (ww == null) { set { it.copy(worldError = "Temperatur und Wind gerade nicht erreichbar (DWD).") }; return@launch }
+            set { it.copy(world = it.world + (start to ww), worldError = null) }
+            AppLog.data("Weltdaten Temperatur/Wind bereit (${System.currentTimeMillis() - started} ms)")
         }
     }
+
+    /** Weitere Stunden für die Zeitleiste (nur bei geöffnetem Radar mit Temperatur/Wind), nacheinander. */
+    fun loadWorldHours() {
+        if (hoursJob?.isActive == true) return
+        hoursJob = viewModelScope.launch {
+            worldJob?.join()
+            for (t in _ui.value.worldHours.drop(1)) {
+                if (_ui.value.world[t] != null) continue
+                val ww = loadHour(t) ?: continue
+                set { it.copy(world = it.world + (t to ww)) }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- Wolken
+
+    fun loadClouds() {
+        if (cloudJob?.isActive == true) return
+        if (_ui.value.clouds != null && System.currentTimeMillis() - cloudsAt < 15 * 60_000) return
+        cloudJob = viewModelScope.launch {
+            // Bodentemperatur hilft, kalten Boden nicht für Wolken zu halten – kurz darauf warten
+            kotlinx.coroutines.withTimeoutOrNull(15_000) { worldJob?.join() }
+            val started = System.currentTimeMillis()
+            val r = withContext(Dispatchers.IO) { runCatching { Satellite.loadClouds(getApplication(), _ui.value.worldNow) } }
+            r.onSuccess { c -> cloudsAt = System.currentTimeMillis(); set { it.copy(clouds = c, cloudsError = null) }; AppLog.data("Wolken weltweit bereit (${System.currentTimeMillis() - started} ms)") }
+            r.onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) set { it.copy(cloudsError = "Satellitenbild gerade nicht erreichbar.") } }
+        }
+    }
+
+    // ---------------------------------------------------------------- Blitze
+
+    /** Blitze der letzten Stunde (12 Abschnitte à 5 Minuten); beim erneuten Aufruf nur die neuen Abschnitte. */
+    fun loadLightning() {
+        if (lightningJob?.isActive == true) return
+        if (System.currentTimeMillis() - strikesAt < 4 * 60_000) return
+        lightningJob = viewModelScope.launch(Dispatchers.IO) {
+            val started = System.currentTimeMillis()
+            val newest = Satellite.lightningTime(Instant.now())
+            val times = (0 until 13).map { newest.minusSeconds(it * 300L) }
+            val have = _ui.value.strikes.groupBy { it.time }
+            val gate = Semaphore(4)
+            val got = times.filter { it !in have.keys }.map { t ->
+                async { gate.withPermit { t to runCatching { Satellite.strikes(t) }.getOrNull() } }
+            }.awaitAll()
+            // leere Abschnitte ganz vorn sind noch nicht angekommen → nächstes Mal erneut versuchen
+            val fresh = got.filter { it.second != null }.associate { it.first to it.second!! }
+            val all = (have + fresh).filterKeys { !it.isBefore(newest.minusSeconds(3600)) }
+            val list = all.toSortedMap().values.flatten()
+            val latestWithData = all.filterValues { it.isNotEmpty() }.keys.maxOrNull()
+            strikesAt = System.currentTimeMillis()
+            set { it.copy(strikes = list, strikesNewest = latestWithData) }
+            AppLog.data("Blitze: ${list.size} Punkte aus ${all.size} Abschnitten (${System.currentTimeMillis() - started} ms)")
+        }
+    }
+
+    // ---------------------------------------------------------------- Modell-Regen außerhalb Deutschlands (Zukunft)
 
     private var viewJob: Job? = null
     private var viewPauseUntil = 0L
-    /** Abrufe der letzten Minute (Zeitpunkt, Gitterpunkte). */
     private val budget = ArrayDeque<Pair<Long, Int>>()
 
-    /**
-     * Sichtbarer Ausschnitt nach dem Verschieben/Zoomen: Liegt er (teilweise) außerhalb des Deutschland-Gitters,
-     * wird ein grobes Gitter für genau diesen Ausschnitt geladen (10 × 10 Punkte, echte Werte).
-     */
+    /** Nur für die Regen-Vorhersage außerhalb Deutschlands: grobes Gitter (Open-Meteo) über dem Ausschnitt. */
     fun ensureView(south: Double, north: Double, west: Double, east: Double) {
-        val g = WindGrid.GERMANY
-        if (south >= g.lat0 && north <= g.lat0 + (g.rows - 1) * g.step && west >= g.lon0 && east <= g.lon0 + (g.cols - 1) * g.step) return
         val span = maxOf(north - south, east - west)
         _ui.value.windView?.let { v -> if (v.covers(south, north, west, east) && v.step <= span / 3) return }
-        // Open-Meteo schonen: höchstens ein Abruf alle 5 s (der letzte Wunsch wird nachgeholt),
-        // nach „zu viele Abrufe“ (429) eine Minute Pause.
         val wait = (viewPauseUntil - System.currentTimeMillis()).coerceAtLeast(0)
         viewJob?.cancel()
         viewJob = viewModelScope.launch {
             kotlinx.coroutines.delay(wait)
-            // Budget: höchstens 300 Gitterpunkte pro Minute für Ausschnitte (Open-Meteo erlaubt 600 –
-            // der Rest bleibt für Vorhersage und Deutschland-Gitter). Sonst warten statt abgelehnt zu werden.
             val points = WindGrid.VIEW_POINTS * WindGrid.VIEW_POINTS
             while (true) {
                 val now = System.currentTimeMillis()
@@ -135,43 +218,21 @@ class RadarViewModel : ViewModel() {
             budget += System.currentTimeMillis() to points
             viewPauseUntil = System.currentTimeMillis() + 5_000
             val spec = WindGrid.viewSpec(south, north, west, east)
-            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Wind + Regen)") } }
-            r.onSuccess { _ui.value = _ui.value.copy(windView = it) }
-            r.onFailure { if (it.message?.contains("429") == true) { viewPauseUntil = System.currentTimeMillis() + 60_000; AppLog.data("Open-Meteo: zu viele Abrufe – Ausschnitt-Gitter 1 Minute pausiert") } }
+            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Regen-Vorhersage)") } }
+            r.onSuccess { g -> set { it.copy(windView = g) } }
+            r.onFailure { if (it.message?.contains("429") == true) viewPauseUntil = System.currentTimeMillis() + 60_000 }
         }
     }
 
-    // ---------------------------------------------------------------- Wolken (Satellit)
+    /** Alles vorladen (beim Öffnen der App). */
+    fun preload() { load(); loadWorld(); loadClouds(); loadLightning() }
 
-    private val _clouds = MutableStateFlow(cloudCache)
-    /** Wolkenbild des Ausschnitts (EUMETSAT), null = noch nicht geladen. */
-    val clouds: StateFlow<de.schee.wetter.data.Satellite.View?> = _clouds
-    private var cloudJob: Job? = null
-
-    /** Wolken für den sichtbaren Ausschnitt laden – wenn er nicht abgedeckt, zu grob oder älter als 10 Minuten ist. */
-    fun ensureClouds(south: Double, north: Double, west: Double, east: Double) {
-        val c = _clouds.value
-        val fresh = c != null && System.currentTimeMillis() - c.fetchedAt < 10 * 60_000
-        // zu grob: Ausschnitt ist viel kleiner als das Bild (nach starkem Hineinzoomen)
-        val sharp = c != null && (east - west) * 4 > (c.east - c.west)
-        if (fresh && sharp && c!!.covers(south.coerceAtLeast(-85.0), north.coerceAtMost(85.0), west.coerceAtLeast(-180.0), east.coerceAtMost(180.0))) return
-        cloudJob?.cancel()
-        cloudJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(300)
-            val a = de.schee.wetter.data.Satellite.area(south, north, west, east)
-            val r = withContext(Dispatchers.IO) { runCatching { de.schee.wetter.data.Satellite.clouds(a[0], a[1], a[2], a[3]) } }
-            r.onSuccess { _clouds.value = it; cloudCache = it }
-            r.onFailure { if (it !is kotlinx.coroutines.CancellationException) AppLog.data("Wolken: ${it.message}") }
-        }
-    }
-
-    /** Beim Verlassen des Bildschirms oder der App: Laden abbrechen (keine Arbeit im Hintergrund). */
+    /** Beim Verlassen der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
-        if (job?.isActive == true) { job?.cancel(); _ui.value = RadarUi(wind = _ui.value.wind) }
-        windJob?.cancel(); viewJob?.cancel(); cloudJob?.cancel()
+        if (job?.isActive == true) { job?.cancel(); set { it.copy(frames = emptyList(), bytes = emptyMap()) } }
+        worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); viewJob?.cancel()
     }
 
     /** Für die Testbilder am PC. */
     fun preview(ui: RadarUi) { _ui.value = ui }
-    fun previewClouds(v: de.schee.wetter.data.Satellite.View?) { _clouds.value = v }
 }

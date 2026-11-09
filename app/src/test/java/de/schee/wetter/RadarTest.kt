@@ -51,9 +51,11 @@ class RadarTest {
     @Test fun mapStyleBrighterAndGerman() {
         val src = javaClass.classLoader!!.getResource("style_dark.json")!!.readText()
         val out = de.schee.wetter.data.MapStyle.transform(src)
-        assertTrue(!out.contains("rgb(12,12,12)") && out.contains("rgba(30,30,30,1)"))
-        assertTrue(out.contains("[\"get\",\"name:de\"],[\"get\",\"name_en\"]"))
-        org.json.JSONObject(out) // gültiges JSON
+        val ids = org.json.JSONObject(out).getJSONArray("layers").let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("id") } }
+        // schlicht: keine Straßen, Gebäude, Bahnen; Grenzen und Orte bleiben
+        assertTrue(ids.none { it.startsWith("highway") || it.startsWith("railway") || it == "building" })
+        assertTrue("boundary_country_z5-" in ids && "place_city" in ids && "water" in ids)
+        assertTrue(out.contains("name:de"))
         assertEquals(listOf(59.0, 59.0, 59.0, 1.0), de.schee.wetter.data.MapStyle.parse("hsl(0,0%,23%)")!!.map { Math.round(it).toDouble() })
     }
 
@@ -77,14 +79,38 @@ class RadarTest {
     @Test fun satellite() {
         // Blitze: 20 Minuten zurück, auf 5 Minuten abgerundet
         assertEquals(Instant.parse("2026-11-09T16:40:00Z"), de.schee.wetter.data.Satellite.lightningTime(Instant.parse("2026-11-09T17:03:41Z")))
-        // Wolken: dunkel → durchsichtig, weiß → fast deckend; MTG hat Vorrang vor der Weltkarte
-        val dark = 0xFF3C3C3C.toInt(); val white = 0xFFF0F0F0.toInt()
-        val out = de.schee.wetter.data.Satellite.cloudPixels(intArrayOf(dark, white, white), intArrayOf(0, 0, dark), 3)
-        assertEquals(0, out[0] ushr 24)
-        assertTrue((out[1] ushr 24) > 220)
-        assertEquals(0, out[2] ushr 24)
-        // Ausschnitt mit Rand, auf die Weltkarte begrenzt
-        val a = de.schee.wetter.data.Satellite.area(-80.0, 80.0, -170.0, 170.0)
-        assertEquals(-85.0, a[0], 0.0); assertEquals(180.0, a[3], 0.0)
+        // Wolken: dunkel → durchsichtig, weiß → fast deckend; außerhalb der MTG-Scheibe (schwarz) gilt die Weltkarte
+        val n = 64 * 64
+        val out = de.schee.wetter.data.Satellite.cloudPixels(IntArray(n) { if (it % 64 < 32) 60 else 240 }, IntArray(n) { 0 }, 64, 64, null)
+        assertEquals(0, out[64 * 32 + 5] ushr 24)
+        assertTrue((out[64 * 32 + 60] ushr 24) > 200)
+        // Zeilen ↔ Breite: oben 85° N, Mitte Äquator
+        assertEquals(85.0, de.schee.wetter.data.Satellite.latOfRow(0.0, 1000), 0.01)
+        assertEquals(0.0, de.schee.wetter.data.Satellite.latOfRow(500.0, 1000), 0.01)
+    }
+
+    @Test fun mapTransformDateline() {
+        // Ausschnitt über der Datumsgrenze (170° O … 190° = −170°): Punkt bei −175° liegt rechts von der Mitte
+        val t = de.schee.wetter.ui.radar.MapTransform(170.0, 190.0, 10.0, -10.0, 1000f, 1000f)
+        assertTrue(t.x(-175.0) > 500f && t.x(-175.0) < 1000f)
+        assertTrue(t.x(175.0) > 0f && t.x(175.0) < 500f)
+    }
+
+    @Test fun worldCities() {
+        assertTrue(de.schee.wetter.data.WorldCities.ALL.size > 150)
+        assertTrue(de.schee.wetter.data.WorldCities.ALL.any { it.name == "New York" })
+    }
+
+    @Test fun worldField() {
+        // GeoTIFF vom DWD (Deflate, Kacheln, 64-Bit-Gleitkomma): Temperatur in °C, Wind u/v in m/s
+        val t = de.schee.wetter.data.WorldGrid.fromGeoTiff(javaClass.classLoader!!.getResource("world_t2m.tif")!!.readBytes())
+        val uv = de.schee.wetter.data.WorldGrid.fromGeoTiff(javaClass.classLoader!!.getResource("world_uv10m.tif")!!.readBytes())
+        assertEquals(2.5, t.value(52.5, 13.4), 1.5)    // Berlin
+        assertEquals(28.8, t.value(6.5, 3.4), 1.5)     // Lagos
+        assertTrue(t.value(10.0, 179.9).let { abs(it - t.value(10.0, -179.9)) < 2 }) // über die Datumsgrenze stetig
+        val ww = de.schee.wetter.data.WorldWeather(Instant.EPOCH, t, uv)
+        val o = DoubleArray(2); ww.windAt(52.5, 13.4, o)
+        assertTrue(hypot(o[0], o[1]) in 0.5..40.0)
+        assertTrue(de.schee.wetter.data.DwdWorld.url(de.schee.wetter.data.DwdWorld.Field.TEMP, Instant.parse("2026-11-09T18:00:00Z")).contains("2026-11-09T18:00:00.000Z"))
     }
 }
