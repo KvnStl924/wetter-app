@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.5 – Eigener Ort lesbar, mehr Orte
+- Eigener Ort: Name über und Wert unter dem blauen Standortpunkt – vorher verdeckte der Punkt den Wert
+- Beim Hineinzoomen kommen Kleinstädte und Dörfer dazu (der Filter hatte sie aussortiert)
+- Zahlen in den Pillen heller und besser lesbar
+
 ## 0.6.4 – Mehr Städte, kleinere Werte
 - Deutlich mehr Städte mit Wert: die App liest die Orte direkt aus den Kartendaten (bis 0.6.3 fehlten sie, sobald Werte gezeigt wurden)
 - Jede gezeigte Stadt hat einen Wert; beim Hineinzoomen kommen Kleinstädte und Dörfer dazu

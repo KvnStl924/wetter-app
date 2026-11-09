@@ -566,9 +566,10 @@ internal fun rememberLabels(
             if (!idle.visible(x, y) || !free(x, y, dist)) return false
             out += l; pts += x to y; return true
         }
-        place?.let { p -> val x = idle.x(p.lon); val y = idle.y(p.lat); if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); pts += x to y } }
+        // eigener Ort: Name über, Wert unter dem blauen Punkt → braucht oben und unten Platz
+        place?.let { p -> val x = idle.x(p.lon); val y = idle.y(p.lat); if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); pts += x to y; pts += x to (y + 26 * density); pts += x to (y - 20 * density) } }
         fix?.let { pts += idle.x(it.lon) to idle.y(it.lat) }
-        val minDist = if (mini) 52f else 62f
+        val minDist = if (mini) 50f else 56f
         for (c in cities.filter { it.fromMap }.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 1), minDist)
         // Weltliste: nur, wo die Karte selbst keinen Ort beschriftet
         val mapNames = cities.map { it.name }.toSet()
@@ -642,7 +643,7 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
             }
             continue
         }
-        if (l.kind != 0) Canvas(Modifier.fillMaxSize()) {
+        if (l.kind != 0 && l.kind != 2) Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color(0xFFF2F3F5), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y))
             drawCircle(Color.Black.copy(alpha = .6f), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y), style = Stroke(1f))
         }
@@ -653,8 +654,8 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
             val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
             layout(t.w.toInt(), t.h.toInt()) {
                 var i = 0
-                if (l.name != null && l.kind != 0) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - 4 * density).toInt()) }
-                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + 4 * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
+                if (l.name != null && l.kind != 0) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - (if (l.kind == 2) 11 else 4) * density).toInt()) }
+                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + (if (l.kind == 2) 12 else 4) * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
             }
         }
     }

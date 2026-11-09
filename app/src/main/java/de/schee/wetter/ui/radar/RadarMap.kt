@@ -50,8 +50,8 @@ private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360,
 data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null)
 
 /** Farbe für Zahl und Rand der Pille: Wertfarbe, aufgehellt (gut lesbar auf dunklem Grund). */
-internal fun pillColor(c: Int): Int {
-    fun ch(s: Int) = (((c shr s) and 255) * 0.55 + 255 * 0.45).toInt().coerceIn(0, 255)
+internal fun pillColor(c: Int, white: Double = 0.45): Int {
+    fun ch(s: Int) = (((c shr s) and 255) * (1 - white) + 255 * white).toInt().coerceIn(0, 255)
     return (255 shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
 }
 
@@ -74,7 +74,7 @@ private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatur
 internal fun pillBitmap(text: String, c: Int, density: Float): Bitmap {
     val col = pillColor(c)
     val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        color = col; textSize = 11.5f * density; typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        color = pillColor(c, 0.68); textSize = 11.5f * density; typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
     }
     val tw = tp.measureText(text)
     val h = 17f * density; val padX = 6.5f * density; val stroke = 1.2f * density
@@ -143,21 +143,23 @@ private fun addOverlayLayers(s: Style) {
     val kind = Expression.get("kind")
     val withPill = Expression.has("pill")
     s.addLayer(org.maplibre.android.style.layers.CircleLayer("lbl-dot", "labels").withProperties(
-        PropertyFactory.circleRadius(Expression.match(kind, Expression.literal(2.6f), Expression.stop(2, Expression.literal(3.4f)))),
+        PropertyFactory.circleRadius(2.6f),
         PropertyFactory.circleColor("#F2F3F5"),
         PropertyFactory.circleStrokeWidth(1f), PropertyFactory.circleStrokeColor("rgba(0,0,0,0.6)"),
-    ).withFilter(Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3)))))
+    ).withFilter(Expression.all(Expression.neq(kind, Expression.literal(2)), Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
         PropertyFactory.textField(Expression.get("name")),
         PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
         PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.4f), PropertyFactory.textHaloBlur(.4f),
-        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.35f)),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+        // eigener Ort: Name über, Wert unter dem blauen Standortpunkt (der sonst den Wert verdeckte, 0.6.4)
+        PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, -0.35f)), Expression.stop(2, Expression.literal(arrayOf(0f, -0.95f))))),
         PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
     ).withFilter(Expression.all(Expression.has("name"), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
         PropertyFactory.iconImage(Expression.get("pill")),
         PropertyFactory.iconAnchor(Expression.match(kind, Expression.literal(Property.ICON_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
-        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 4f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
+        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 4f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))), Expression.stop(2, Expression.literal(arrayOf(0f, 12f))))),
         PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
     ).withFilter(withPill))
     // ohne Farbe (z. B. eigener Ort bei Regen): schlichter Wert über dem Punkt
@@ -290,14 +292,14 @@ fun RadarMap(
                     val vs = st.getSourceAs<org.maplibre.android.style.sources.VectorSource>(srcId) ?: return@runCatching
                     val zoom = m.cameraPosition.zoom
                     val classes = listOfNotNull("city", "town".takeIf { zoom >= 5.5 }, "village".takeIf { zoom >= 8.5 })
-                    val filter = Expression.match(Expression.get("class"), Expression.literal(false), *classes.map { Expression.stop(it, true) }.toTypedArray())
                     val w = view.width.toFloat(); val h = view.height.toFloat()
-                    val found = vs.querySourceFeatures(arrayOf("place"), filter).mapNotNull { f ->
+                    val found = vs.querySourceFeatures(arrayOf("place"), null).mapNotNull { f ->
                         val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
                         val sp = m.projection.toScreenLocation(LatLng(p.latitude(), p.longitude()))
                         if (sp.x < 0 || sp.y < 0 || sp.x > w || sp.y > h) return@mapNotNull null
                         val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
                         val cls = if (f.hasProperty("class")) f.getStringProperty("class") else "city"
+                        if (cls !in classes) return@mapNotNull null
                         val rank = if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 20
                         val capital = if (f.hasProperty("capital")) f.getNumberProperty("capital").toInt() else 0
                         // Reihenfolge: Hauptstädte, große Städte, Städte, Kleinstädte, Dörfer
