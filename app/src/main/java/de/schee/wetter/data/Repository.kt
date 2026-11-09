@@ -18,7 +18,8 @@ import java.util.Locale
 
 /** HTTP mit Protokoll: jede Abfrage landet mit Dauer und Größe im Log. */
 object Http {
-    fun get(label: String, url: String, timeoutMs: Int = 12_000): ByteArray {
+    /** [log] = false für viele kleine Abrufe (Radarbilder); der Aufrufer protokolliert dann eine Zusammenfassung. */
+    fun get(label: String, url: String, timeoutMs: Int = 12_000, log: Boolean = true): ByteArray {
         val started = System.currentTimeMillis()
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = timeoutMs; readTimeout = timeoutMs
@@ -28,17 +29,17 @@ object Http {
             val code = conn.responseCode
             if (code != 200) throw IOException("$label: HTTP $code")
             val bytes = conn.inputStream.use { it.readBytes() }
-            AppLog.data("$label geladen (${System.currentTimeMillis() - started} ms, ${bytes.size / 1024} kB)")
+            if (log) AppLog.data("$label geladen (${System.currentTimeMillis() - started} ms, ${bytes.size / 1024} kB)")
             return bytes
         } catch (e: Exception) {
-            AppLog.error("$label fehlgeschlagen nach ${System.currentTimeMillis() - started} ms", e)
+            if (log) AppLog.error("$label fehlgeschlagen nach ${System.currentTimeMillis() - started} ms", e)
             throw e
         } finally {
             conn.disconnect()
         }
     }
 
-    fun text(label: String, url: String) = String(get(label, url), Charsets.UTF_8)
+    fun text(label: String, url: String, timeoutMs: Int = 12_000) = String(get(label, url, timeoutMs), Charsets.UTF_8)
 }
 
 /** Lädt die Vorhersage (ICON + ECMWF parallel) und hält eine Kopie für die Offline-Anzeige. */

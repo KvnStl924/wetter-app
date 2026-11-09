@@ -71,6 +71,27 @@ class ScreenshotDump {
         save(activity.window.decorView, File(target, "edit_tiles.png").also { it.parentFile?.mkdirs() })
     }
 
+    @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
+    @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
+
+    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String) {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
+        val kb = bytes("kreise_de.png")
+        val base = de.schee.wetter.data.MapImages.bordersOnly(android.graphics.BitmapFactory.decodeByteArray(kb, 0, kb.size))
+        val frames = de.schee.wetter.data.RadarData.frames(java.time.Instant.parse("2026-11-09T07:30:00Z"))
+        val now = frames.indexOfFirst { it.minutes == 0 }
+        val vm = de.schee.wetter.ui.radar.RadarViewModel()
+        vm.preview(de.schee.wetter.ui.radar.RadarUi(frames, frames.indices.associateWith { if (it == now || it % 3 == 0) bytes("radar_de.png") else null }.filterValues { it != null } + (now to bytes("radar_de.png")), now,
+            wind = de.schee.wetter.data.WindGrid.parse(res("windgrid.json"))))
+        val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base) } } }
+        settle(); Thread.sleep(500); settle()
+        save(activity.window.decorView, File(target, name).also { it.parentFile?.mkdirs() })
+    }
+
     private fun maps(): de.schee.wetter.data.MapImages.Layers {
         val bytes = javaClass.classLoader!!.getResource("kreise.png")!!.readBytes()
         val b = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

@@ -10,7 +10,7 @@ import java.util.Locale
 
 /**
  * Kartenbilder vom DWD (WMS): Kreisgrenzen als dunkle Grundkarte und das aktuelle Niederschlagsradar.
- * Ausschnitt etwa 120 × 120 km um den Ort. Das Vollbild-Radar mit Zeitleiste folgt in 0.4.0.
+ * Ausschnitt etwa 120 × 120 km um den Ort. Das Vollbild-Radar steht in ui/radar/.
  */
 object MapImages {
     data class Layers(val borders: Bitmap?, val radar: Bitmap?, val loadedAt: Long)
@@ -26,7 +26,8 @@ object MapImages {
         val base = "https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap&crs=EPSG:4326&bbox=$bbox&width=480&height=480&format=image/png&transparent=true&styles="
         coroutineScope {
             val b = async { runCatching { decode(Http.get("DWD-Grundkarte", base + "&layers=dwd:Warngebiete_Kreise"))?.let(::bordersOnly) }.getOrNull() }
-            val r = async { runCatching { decode(Http.get("DWD-Radarbild", base + "&layers=dwd:Niederschlagsradar")) }.getOrNull() }
+            // Gleiche Farben wie im Vollbild-Radar (Leicht · Mäßig · Stark · Extrem).
+            val r = async { runCatching { decode(Http.get("DWD-Radarbild", base + "&layers=dwd:Niederschlagsradar"))?.let { RadarData.recolor(it, RadarData.RADAR_SCALE) } }.getOrNull() }
             Layers(b.await(), r.await(), System.currentTimeMillis()).also { cache = key to it }
         }
     }

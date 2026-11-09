@@ -92,6 +92,8 @@ import java.time.ZoneId
 @Composable
 fun MainScreen(
     onOpenSettings: () -> Unit,
+    /** Vollbild-Radar öffnen (Ebene, Herkunft fürs Log). */
+    onOpenRadar: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit = { _, _ -> },
     vm: WeatherViewModel = viewModel(),
     /** Nur für Bildschirmfotos im Test: feste Daten statt Laden. */
     preview: WeatherUi? = null,
@@ -205,7 +207,7 @@ fun MainScreen(
                     de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); editTiles = true }
                     HourlyCard(f, now, mode, units) { mode = it }
                     DailyCard(f, today, mode, units) { openDay = it }
-                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = { editTiles = it }, onHint = { hint = it; hintId++ })
+                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = { editTiles = it }, onOpenMap = { l, from -> onOpenRadar(l, from) })
                     Text(
                         "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
                         style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
@@ -239,7 +241,7 @@ fun MainScreen(
 
         BottomBar(
             Modifier.align(Alignment.BottomCenter),
-            onMap = { AppLog.tap("Leiste unten → Karte (Hinweis: kommt mit 0.4.0)"); hint = "Die Regenradar-Karte kommt mit Version 0.4.0."; hintId++ },
+            onMap = { onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Leiste unten → Karte") },
             onPlaces = { AppLog.tap("Leiste unten → Ort suchen"); showSearch = true },
             onList = onOpenSettings,
         )

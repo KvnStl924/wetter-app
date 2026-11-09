@@ -101,7 +101,7 @@ fun RadarContent(d: TileData) {
         LocationDot(Modifier.align(Alignment.Center), d.units.t(d.f.current.temp))
         if (d.maps == null) Text("Radar wird geladen …", style = WType.bodyDim, modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp))
     }
-    val rainNow = (d.maps?.radar?.let(::hasRain) ?: false)
+    val rainNow = (d.maps?.radar?.let { de.schee.wetter.data.RadarData.hasRain(it) } ?: false)
     Text(if (rainNow) "Aktuell Niederschlag in der Umgebung · DWD-Radar" else "Kein Niederschlag in der Umgebung · DWD-Radar", style = WType.bodyDim)
 }
 
@@ -117,13 +117,6 @@ private fun LocationDot(modifier: Modifier, label: String) {
             Text(label, style = WType.small)
         }
     }
-}
-
-private fun hasRain(b: Bitmap): Boolean {
-    val step = 8
-    var y = 0
-    while (y < b.height) { var x = 0; while (x < b.width) { if ((b.getPixel(x, y) ushr 24) > 40) return true; x += step }; y += step }
-    return false
 }
 
 // ------------------------------------------------------------ Regen nächste 2 Std.
@@ -263,7 +256,7 @@ fun WindMapContent(d: TileData) {
         }
         LocationDot(Modifier.align(Alignment.Center), d.units.wNum(c.wind).toString())
     }
-    Text("Wind aus ${Units.compass(c.windDir)} mit ${d.units.w(c.wind)}, Böen bis ${d.units.w(c.gusts)} · Karte mit Zeitleiste ab 0.4.0", style = WType.bodyDim)
+    Text("Wind aus ${Units.compass(c.windDir)} mit ${d.units.w(c.wind)}, Böen bis ${d.units.w(c.gusts)} · Tippen für die große Karte", style = WType.bodyDim)
 }
 
 // ------------------------------------------------------------ Halbe Kacheln

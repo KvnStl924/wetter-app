@@ -8,8 +8,8 @@ plugins {
 
 // ---- Version: X.Y.Z (X = großes Update, Y = kleines Update, Z = Fehlerbehebung) ----
 val versionMajor = 0
-val versionMinor = 3
-val versionPatch = 4
+val versionMinor = 4
+val versionPatch = 0
 
 // ---- Signierschlüssel: lokal aus keystore/keystore.properties, in GitHub Actions aus Secrets ----
 val keystoreProps = Properties().apply {
@@ -29,6 +29,8 @@ android {
         versionCode = versionMajor * 10000 + versionMinor * 100 + versionPatch
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         buildConfigField("String", "UPDATE_REPO", "\"KvnStl924/wetter-app\"")
+        // Nur 64-Bit-ARM (alle aktuellen Handys): hält die Karten-Bibliothek klein.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     signingConfigs {
@@ -97,6 +99,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.compose.material:material-icons-core")
+    // Karte im Vollbild-Radar (Version 12: passt zu Kotlin 2.0)
+    implementation("org.maplibre.gl:android-sdk:12.3.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

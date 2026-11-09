@@ -76,7 +76,7 @@ fun WarningTile(d: TileData, state: TileState, onEdit: () -> Unit) {
  * Kacheln wackeln, lassen sich am Griff ziehen, mit ⊖ ausblenden und mit ⊕ wieder hinzufügen.
  */
 @Composable
-fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean) -> Unit, onHint: (String) -> Unit) {
+fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean) -> Unit, onOpenMap: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit) {
     val order = state.order
     val hidden = state.hidden
     val haptic = LocalHapticFeedback.current
@@ -110,8 +110,8 @@ fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean)
                         onClick = {
                             AppLog.tap("Kachel ${id.title} angetippt")
                             when (id) {
-                                TileId.RADAR -> onHint("Das Vollbild-Radar mit Zeitleiste kommt mit Version 0.4.0.")
-                                TileId.WIND_MAP -> onHint("Die große Windkarte kommt mit Version 0.4.0.")
+                                TileId.RADAR -> onOpenMap(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Kachel Regenradar")
+                                TileId.WIND_MAP -> onOpenMap(de.schee.wetter.ui.radar.RadarLayer.WIND, "Kachel Windkarte")
                                 else -> Unit
                             }
                         },

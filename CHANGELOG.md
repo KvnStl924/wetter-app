@@ -1,6 +1,14 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.0 – Radar und Karten
+- Vollbild-Radar: dunkle Karte zum Verschieben und Zoomen (OpenFreeMap, Daten © OpenStreetMap), Ort mit aktueller Temperatur
+- Zeitleiste mit Abspielen: DWD-Radar der letzten 2 Stunden, DWD-Radar-Vorhersage bis +2 Stunden (5-Minuten-Schritte), danach Modell-Niederschlag (ICON-EU) stündlich bis +12 Stunden
+- Eigene Farbskala mit Legende: Leicht · Mäßig · Stark · Extrem (auch in der Regenradar-Kachel)
+- Ebene „Wind“: Windgeschwindigkeit als Farbfläche und wandernde Strömungslinien, stündlich bis +12 Stunden (Open-Meteo, ICON)
+- Öffnen über die Kachel Regenradar, die Kachel Windkarte oder den Karten-Knopf unten links
+- Geladen wird nur, solange das Radar offen ist; beim Schließen oder Verlassen der App wird abgebrochen
+
 ## 0.3.4 – Weniger Abstand zwischen den Kacheln
 - Abstand zwischen allen Kacheln halbiert (12 → 6 dp), die Kacheln werden dadurch etwas breiter
 
