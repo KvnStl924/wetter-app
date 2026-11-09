@@ -141,6 +141,13 @@ private fun DriveTile() {
             if (tree == null) "Kein Ordner verbunden" else "Verbunden: ${folderName.ifEmpty { "Drive-Ordner" }}",
             style = WType.body,
         )
+        if (tree != null && folderName.isNotEmpty() && folderName != DriveSync.APP_FOLDER) {
+            Text(
+                "Bitte den Ordner „Meine Ablage › Apps › ${DriveSync.APP_FOLDER}“ wählen. " +
+                    "Gewählt ist „$folderName“ – dort legt die App keine APK ab.",
+                style = WType.bodyDim.copy(color = WColors.Warn),
+            )
+        }
         Text(
             "Die App schreibt mit, solange sie offen ist, und lädt das Protokoll beim Verlassen nach " +
                 "„03 Logs - Fehlerberichte“ hoch. Danach wird es vom Handy gelöscht.",

@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.3.2 – Drive-Ordner abgesichert
+- Wird in der Ordnerauswahl versehentlich „03 Logs - Fehlerberichte“ statt „Wetter-App“ gewählt, legt die App keinen zweiten 03-Ordner mehr darin an
+- Die APK wird nur noch in „Wetter-App › 02 APK“ abgelegt; bei falschem Ordner zeigen die Einstellungen einen Hinweis
+
 ## 0.3.1 – Update-Download repariert
 - Update-Download läuft jetzt über die GitHub-Schnittstelle; der normale Download-Link von GitHub antwortete für dieses Projekt nur mit Fehler 504
 - Bei kurzen GitHub-Störungen versucht die App es automatisch ein zweites Mal

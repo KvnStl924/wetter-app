@@ -25,6 +25,8 @@ object DriveSync {
     const val CRASHES = "Absturzberichte"
     const val UPDATES = "Update-Protokoll"
     const val APK_FOLDER = "02 APK - zum Installieren"
+    /** Der Ordner, den man in der Auswahl wählen soll: Meine Ablage › Apps › Wetter-App. */
+    const val APP_FOLDER = "Wetter-App"
 
     private const val PREFS = "drive"
     private const val KEY_TREE = "tree_uri"
@@ -68,11 +70,13 @@ object DriveSync {
             return 0
         }
         val resolver = context.contentResolver
+        // Falls versehentlich „03 Logs - Fehlerberichte“ selbst gewählt wurde: dort direkt ablegen statt einen zweiten 03-Ordner darin anzulegen.
+        val insideLogsRoot = rootName(resolver, tree) == LOGS_ROOT
         var ok = 0
         for ((file, sub) in pending) {
             val started = System.currentTimeMillis()
             try {
-                val folder = folder(resolver, tree, LOGS_ROOT, sub)
+                val folder = if (insideLogsRoot) folder(resolver, tree, sub) else folder(resolver, tree, LOGS_ROOT, sub)
                 copyFile(resolver, folder, file, "text/plain")
                 val bytes = file.length()
                 if (file.delete()) ok++
@@ -93,6 +97,10 @@ object DriveSync {
         val resolver = context.contentResolver
         val name = "Wetter-v$versionName.apk"
         try {
+            if (rootName(resolver, tree) != APP_FOLDER) {
+                AppLog.i(AppLog.Cat.DRIVE, "APK nicht abgelegt: gewählter Ordner ist nicht „$APP_FOLDER“")
+                return
+            }
             val folder = folder(resolver, tree, APK_FOLDER)
             if (list(resolver, tree, folder).any { it.name == name }) return
             val apk = File(context.applicationInfo.sourceDir)
