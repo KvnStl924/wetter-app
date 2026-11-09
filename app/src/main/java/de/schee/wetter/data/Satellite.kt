@@ -166,6 +166,20 @@ object Satellite {
         return m.minusSeconds((m.epochSecond / 60 % 5) * 60)
     }
 
+    /**
+     * Abschnitte zusammenführen: Jedes Satellitenbild enthält auch noch ältere Blitzflächen. Damit ein Blitz nicht
+     * in jedem Bild wieder als „neu“ zählt, gilt für jede Stelle (≈ 0,4°) der Zeitpunkt, an dem sie zuerst auftaucht.
+     */
+    fun firstSeen(frames: Map<Instant, List<Strike>>): List<Strike> {
+        val best = HashMap<Long, Strike>()
+        for ((_, list) in frames.toSortedMap()) for (s in list) {
+            val key = Math.round(s.lat / 0.4) * 100_000L + Math.round(s.lon / 0.4)
+            val old = best[key]
+            best[key] = if (old == null) s else old.copy(strength = maxOf(old.strength, s.strength))
+        }
+        return best.values.sortedBy { it.time }
+    }
+
     /** Blitze eines 5-Minuten-Abschnitts als Punkte. Leere Bilder (noch keine Daten) ergeben eine leere Liste. */
     fun strikes(time: Instant, label: String = "EUMETSAT Blitze"): List<Strike> {
         val bytes = Http.get(label, lightningUrl(time), timeoutMs = 25_000, log = false)

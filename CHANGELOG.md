@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.5.4 – Radar: Datumsgrenze, Blitze fest auf der Karte
+- Temperatur, Wind und Wolken gehen über die Datumsgrenze (Pazifik) weiter – vorher endete die Fläche mit harter Kante
+- Blitze und Werte werden direkt in der Karte gezeichnet und gehen beim Wischen exakt mit (vorher hingen sie hinterher)
+- Blitz-Alter stimmt: eine Stelle zählt ab dem ersten Auftauchen (vorher war fast alles „neu“); weit herausgezoomt kleinere Punkte
+
 ## 0.5.3 – Radar überarbeitet
 - Sofort bereit: Temperatur, Wind, Wolken und Blitze werden beim Öffnen der App für die ganze Welt geladen (und auf dem Handy zwischengespeichert) – beim Wischen und Zoomen wird nichts mehr nachgeladen
 - Immer nur eine Ebene: Regen, Wind, Temperatur oder Wolken; Blitze lassen sich zum Regen dazuschalten

@@ -33,9 +33,97 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.ImageSource
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+import androidx.lifecycle.repeatOnLifecycle
 import kotlin.math.pow
 
 private const val STYLE = "https://tiles.openfreemap.org/styles/dark"
+
+/** Weltbild um [side] · 360° verschoben (östlich +1, westlich −1). */
+private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360, -Satellite.MAX_LAT, Satellite.MAX_LAT)
+
+/** Wert/Name an einem Ort. kind: 0 = Hotspot, 1 = Stadt der Karte, 2 = eigener Ort, 3 = Großstadt aus der Weltliste. */
+data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int)
+
+private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
+    Feature.fromGeometry(Point.fromLngLat(l.lon, l.lat)).apply {
+        addNumberProperty("kind", l.kind)
+        l.value?.let { addStringProperty("value", it) }
+        l.name?.let { addStringProperty("name", it) }
+    }
+})
+
+/**
+ * Blitze → Punkte mit Alters-Stufe (0 = neu < 10 Min., 1 = < 25, 2 = < 45, 3 = älter), Größe nach Stärke,
+ * Ring nur bei den stärksten neuesten (höchstens 12). Ältere zuerst, damit die neuen obenauf liegen.
+ */
+private fun strikeFeatures(strikes: List<Satellite.Strike>, newest: java.time.Instant?): FeatureCollection {
+    if (newest == null) return FeatureCollection.fromFeatures(emptyList())
+    val rings = strikes.filter { newest.epochSecond - it.time.epochSecond < 300 && it.strength >= .7f }.sortedByDescending { it.strength }.take(12).toSet()
+    return FeatureCollection.fromFeatures(strikes.sortedBy { it.time }.map { s ->
+        val age = (newest.epochSecond - s.time.epochSecond) / 60.0
+        Feature.fromGeometry(Point.fromLngLat(s.lon, s.lat)).apply {
+            addNumberProperty("cat", when { age < 10 -> 0; age < 25 -> 1; age < 45 -> 2; else -> 3 })
+            addNumberProperty("r", 2.6 + 2.2 * s.strength)
+            addNumberProperty("ring", if (s in rings) 1 else 0)
+        }
+    })
+}
+
+/** Blitz- und Beschriftungs-Ebenen ganz oben (über den Ortsnamen der Karte). */
+private fun addOverlayLayers(s: Style) {
+    s.addSource(GeoJsonSource("strikes"))
+    s.addSource(GeoJsonSource("labels"))
+    val cat = Expression.get("cat")
+    // Größe wächst mit dem Zoom: weit heraus kleine Punkte, nah größer
+    fun radius(f: Double) = Expression.interpolate(Expression.linear(), Expression.zoom(),
+        Expression.stop(1.5, Expression.product(Expression.get("r"), Expression.literal(.45 * f))),
+        Expression.stop(5, Expression.product(Expression.get("r"), Expression.literal(.8 * f))),
+        Expression.stop(9, Expression.product(Expression.get("r"), Expression.literal(1.25 * f))))
+    val yellow = "#FFE135"; val orange = "#F2A12E"; val red = "#E5322D"
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("strike-dots", "strikes").withProperties(
+        PropertyFactory.circleRadius(radius(1.0)),
+        PropertyFactory.circleColor(Expression.match(cat, Expression.literal(yellow), Expression.stop(3, Expression.literal(orange)))),
+        PropertyFactory.circleOpacity(Expression.match(cat, Expression.literal(1f), Expression.stop(2, Expression.literal(.85f)), Expression.stop(3, Expression.literal(.55f)))),
+        PropertyFactory.circleStrokeWidth(Expression.match(cat, Expression.literal(0f), Expression.stop(0, Expression.literal(1.1f)), Expression.stop(1, Expression.literal(.9f)))),
+        PropertyFactory.circleStrokeColor(Expression.match(cat, Expression.literal(orange), Expression.stop(0, Expression.literal(red)))),
+    ))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("strike-core", "strikes").withProperties(
+        PropertyFactory.circleRadius(radius(.5)), PropertyFactory.circleColor(red),
+    ).withFilter(Expression.eq(cat, Expression.literal(0))))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("strike-rings", "strikes").withProperties(
+        PropertyFactory.circleRadius(14f), PropertyFactory.circleColor("rgba(0,0,0,0)"),
+        PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(1.4f), PropertyFactory.circleStrokeOpacity(.5f),
+    ).withFilter(Expression.eq(Expression.get("ring"), Expression.literal(1))))
+    // Beschriftung: Punkt (eigener Ort weiß mit Rand, Weltliste hell, Hotspot klein), Wert darüber, Name darunter
+    val kind = Expression.get("kind")
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("lbl-dot", "labels").withProperties(
+        PropertyFactory.circleRadius(Expression.match(kind, Expression.literal(2.4f), Expression.stop(2, Expression.literal(3.6f)), Expression.stop(0, Expression.literal(1.8f)))),
+        PropertyFactory.circleColor(Expression.match(kind, Expression.literal("#E6E8EB"), Expression.stop(0, Expression.literal("rgba(255,255,255,0.55)")))),
+        PropertyFactory.circleStrokeWidth(Expression.match(kind, Expression.literal(0f), Expression.stop(2, Expression.literal(1f)))),
+        PropertyFactory.circleStrokeColor("rgba(0,0,0,0.6)"),
+    ).withFilter(Expression.neq(kind, Expression.literal(1))))
+    s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
+        PropertyFactory.textField(Expression.get("value")),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
+        PropertyFactory.textSize(Expression.match(kind, Expression.literal(14.5f), Expression.stop(2, Expression.literal(16f)))),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.3f), PropertyFactory.textHaloBlur(.6f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+        PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, -0.3f)), Expression.stop(1, Expression.literal(arrayOf(0f, -0.75f))))),
+        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+    ).withFilter(Expression.has("value")))
+    s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
+        PropertyFactory.textField(Expression.get("name")),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
+        PropertyFactory.textColor("#C9CDD3"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.2f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.45f)),
+        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+    ).withFilter(Expression.all(Expression.eq(kind, Expression.literal(3)), Expression.has("name"))))
+}
 
 private fun quad(west: Double, east: Double, south: Double, north: Double) =
     LatLngQuad(LatLng(north, west), LatLng(north, east), LatLng(south, east), LatLng(south, west))
@@ -67,6 +155,10 @@ fun RadarMap(
     onCities: (List<MapCity>, MapTransform?) -> Unit = { _, _ -> },
     /** Kachel-Modus: kleine, nicht bedienbare Karte (kein Verschieben/Zoomen, keine Knöpfe), Zoomstufe fest. */
     mini: Boolean = false,
+    /** Werte und Namen (Städte, Hotspots, eigener Ort) – direkt in der Karte gezeichnet, damit sie beim Wischen exakt mitgehen. */
+    labels: List<MapLabel> = emptyList(),
+    /** Blitze (leer = aus) und der jüngste Abschnitt mit Daten (für das Alter). */
+    strikes: List<Satellite.Strike> = emptyList(), strikesNewest: java.time.Instant? = null,
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -130,7 +222,16 @@ fun RadarMap(
                 val vr = m.projection.visibleRegion
                 return MapTransform(c.longitude - span / 2, c.longitude + span / 2, vr.farLeft!!.latitude, vr.nearLeft!!.latitude, view.width.toFloat(), view.height.toFloat())
             }
-            fun send() { current()?.let { report(it) } }
+            var copySide = 1
+            fun send() {
+                current()?.let { report(it) }
+                // Kopie der Weltbilder auf die Seite legen, zu der die Bildmitte näher an der Datumsgrenze liegt
+                val side = if ((m.cameraPosition.target?.longitude ?: 0.0) >= 0) 1 else -1
+                if (side != copySide) {
+                    copySide = side
+                    m.style?.let { st -> listOf("field2", "clouds2").forEach { (st.getSource(it) as? ImageSource)?.setCoordinates(worldCopy(side)) } }
+                }
+            }
             m.addOnCameraMoveListener { send() }
             // Orte aus den Beschriftungs-Ebenen des Kartenstils (die Karte hat sie schon so verteilt, dass nichts überlappt)
             fun cities() {
@@ -156,15 +257,20 @@ fun RadarMap(
                 val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
                 s.addSource(ImageSource("field", WORLD, empty))
                 s.addSource(ImageSource("clouds", WORLD, empty))
+                // Zweite Kopie gleich daneben (östlich bzw. westlich) – MapLibre wiederholt Bild-Ebenen nicht
+                // über die Datumsgrenze hinweg; ohne Kopie endete die Fläche dort mit harter Kante (bis 0.5.3).
+                s.addSource(ImageSource("field2", worldCopy(1), empty))
+                s.addSource(ImageSource("clouds2", worldCopy(1), empty))
                 s.addSource(ImageSource("precip", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
                 // Reihenfolge von unten nach oben: Temperatur/Wind, Wolken, Modell-Regen, (RainViewer), DWD-Radar, Ortsnamen
-                listOf(raster("field-layer", "field", 1f), raster("clouds-layer", "clouds", 1f),
+                listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f), raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f),
                     raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
                     if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
                 }
+                addOverlayLayers(s)
                 style = s
                 send()
             }
@@ -199,8 +305,24 @@ fun RadarMap(
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.
     val empty = remember { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
     LaunchedEffect(style, radar) { (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty) }
-    LaunchedEffect(style, field) { (style?.getSource("field") as? ImageSource)?.setImage(field ?: empty) }
-    LaunchedEffect(style, clouds) { (style?.getSource("clouds") as? ImageSource)?.setImage(clouds ?: empty) }
+    LaunchedEffect(style, field) { listOf("field", "field2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(field ?: empty) } }
+    LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
+    LaunchedEffect(style, labels) { (style?.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels)) }
+    LaunchedEffect(style, strikes, strikesNewest) { (style?.getSource("strikes") as? GeoJsonSource)?.setGeoJson(strikeFeatures(strikes, strikesNewest)) }
+    // Leuchtringe der neuesten Blitze: sanft wachsen und verblassen (nur solange der Bildschirm sichtbar ist)
+    val animate = de.schee.wetter.ui.sky.LocalAnimate.current
+    LaunchedEffect(style, strikes.isNotEmpty(), animate) {
+        val s = style ?: return@LaunchedEffect
+        if (strikes.isEmpty() || !animate) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val start = System.nanoTime()
+            while (true) {
+                val p = (((System.nanoTime() - start) / 1e9) % 1.4 / 1.4).toFloat()
+                s.getLayer("strike-rings")?.setProperties(PropertyFactory.circleRadius(8f + 20f * p), PropertyFactory.circleStrokeOpacity(.8f * (1 - p)))
+                kotlinx.coroutines.delay(40)
+            }
+        }
+    }
     LaunchedEffect(style, precipView) {
         val src = style?.getSource("precip") as? ImageSource ?: return@LaunchedEffect
         val v = precipView

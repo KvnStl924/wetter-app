@@ -66,6 +66,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         private var radarAt = 0L
         private var cloudsAt = 0L
         private var strikesAt = 0L
+        /** Blitze je 5-Minuten-Abschnitt, wie geladen (für das Nachladen nur neuer Abschnitte). */
+        private val strikeFrames = HashMap<Instant, List<Satellite.Strike>>()
     }
 
     private fun set(f: (RadarUi) -> RadarUi) { _ui.update(f); cache = _ui.value }
@@ -178,7 +180,7 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             val started = System.currentTimeMillis()
             val newest = Satellite.lightningTime(Instant.now())
             val times = (0 until 13).map { newest.minusSeconds(it * 300L) }
-            val have = _ui.value.strikes.groupBy { it.time }
+            val have = strikeFrames.toMap()
             val gate = Semaphore(4)
             val got = times.filter { it !in have.keys }.map { t ->
                 async { gate.withPermit { t to runCatching { Satellite.strikes(t) }.getOrNull() } }
@@ -186,7 +188,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             // leere Abschnitte ganz vorn sind noch nicht angekommen → nächstes Mal erneut versuchen
             val fresh = got.filter { it.second != null }.associate { it.first to it.second!! }
             val all = (have + fresh).filterKeys { !it.isBefore(newest.minusSeconds(3600)) }
-            val list = all.toSortedMap().values.flatten()
+            strikeFrames.clear(); strikeFrames.putAll(all)
+            val list = Satellite.firstSeen(all)
             val latestWithData = all.filterValues { it.isNotEmpty() }.keys.maxOrNull()
             strikesAt = System.currentTimeMillis()
             set { it.copy(strikes = list, strikesNewest = latestWithData) }

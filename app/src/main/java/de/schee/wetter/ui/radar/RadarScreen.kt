@@ -234,6 +234,10 @@ fun RadarScreen(
         vm.ensureView(tNow.south, tNow.north, tNow.west, tNow.east)
     }
 
+    // Werte und Namen: Auswahl nach dem Verschieben/Zoomen, gezeichnet in der Karte (gehen beim Wischen exakt mit)
+    val labelArea = idle ?: transform
+    val labels = if (preview == null && labelArea != null) rememberLabels(labelArea, cities, if (fieldKind != null) ww else null, fieldKind == RadarLayer.TEMP, units, place, fix) else emptyList()
+
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF282B30))) {
         if (preview != null) {
             // Testbild am PC: alles ohne Hintergrund-Effekte berechnen, damit es sofort gezeichnet wird.
@@ -246,14 +250,15 @@ fun RadarScreen(
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
                 precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null,
                 center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
-                onCities = { c, t -> cities = c; idle = t }) { transform = it }
+                onCities = { c, t -> cities = c; idle = t },
+                labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest) { transform = it }
         }
         val t = transform
         if (layer == RadarLayer.WIND && t != null && ww?.wind != null) WindParticles(ww, t)
-        if (lightning && t != null) LightningDots(ui.strikes, ui.strikesNewest, t)
+        if (preview != null && lightning && t != null) LightningDots(ui.strikes, ui.strikesNewest, t)
         val f = fix
         if (f != null && t != null) MyLocationDot(f, t)
-        if (t != null) CityLabels(t, idle ?: t, cities, if (fieldKind != null) ww else null, fieldKind == RadarLayer.TEMP, units, place, f)
+        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, if (fieldKind != null) ww else null, fieldKind == RadarLayer.TEMP, units, place, fix))
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
         Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -543,14 +548,13 @@ data class MapCity(val name: String, val lat: Double, val lon: Double, val rank:
  * Die Auswahl wird nur nach dem Verschieben/Zoomen neu bestimmt ([idle]); beim Wischen wandern die Werte mit.
  */
 @Composable
-internal fun CityLabels(
-    t: MapTransform, idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
+internal fun rememberLabels(
+    idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
     units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false,
-) {
+): List<MapLabel> {
     val density = LocalDensity.current.density
-    // kind: 0 = Hotspot, 1 = Stadt der Karte, 2 = eigener Ort, 3 = Großstadt aus der Weltliste (Name selbst zeichnen)
     data class L(val lat: Double, val lon: Double, val name: String?, val kind: Int)
-    val chosen = remember(idle, cities, ww, temp, place) {
+    val chosen = remember(idle, cities, ww != null, temp, place) {
         val out = mutableListOf<L>()
         val pts = mutableListOf<Pair<Float, Float>>()
         fun free(x: Float, y: Float, dist: Float) = pts.none { (ax, ay) -> hypot((ax - x).toDouble(), (ay - y).toDouble()) < dist * density } &&
@@ -600,44 +604,48 @@ internal fun CityLabels(
         }
         out
     }
+    // Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt)
+    return remember(chosen, ww, temp, place) {
+        val o = DoubleArray(2)
+        chosen.mapNotNull { l ->
+            val value: String? = when {
+                ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { "${units.tNum(it)}°" }
+                ww != null -> { ww.windAt(l.lat, l.lon, o); "${units.wNum(hypot(o[0], o[1]))} ${units.windLabel}" }
+                l.kind == 2 -> place?.tempLabel
+                else -> null
+            }
+            if (value == null && l.kind != 3) null else MapLabel(l.lat, l.lon, value, l.name, l.kind)
+        }
+    }
+}
+
+/** Nur für die Testbilder am PC (dort läuft MapLibre nicht): dieselben Werte mit Compose gezeichnet. */
+@Composable
+private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
+    val density = LocalDensity.current.density
     val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .85f), Offset(0f, 1.5f), 6f)
     val big = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow)
-    val unit = WType.label.copy(color = Color.White.copy(alpha = .9f), fontWeight = FontWeight.SemiBold, shadow = shadow)
     val nameStyle = WType.label.copy(color = Color(0xFFC9CDD3), fontWeight = FontWeight.SemiBold, shadow = shadow)
-    val o = DoubleArray(2)
-    for (l in chosen) {
+    for (l in labels) {
         val x = t.x(l.lon); val y = t.y(l.lat)
         if (!t.visible(x, y, 40f)) continue
-        val value: String? = when {
-            ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { "${units.tNum(it)}°" }
-            ww != null -> { ww.windAt(l.lat, l.lon, o); "${units.wNum(hypot(o[0], o[1]))}" }
-            l.kind == 2 -> place?.tempLabel
-            else -> null
-        }
-        if (value == null && l.kind != 3) continue
-        // Punkt (Weltliste, eigener Ort, Hotspot) – Städte der Karte haben ihren eigenen Punkt/Namen
         if (l.kind != 1) Canvas(Modifier.fillMaxSize()) {
             when (l.kind) {
                 2 -> { drawCircle(Color.White, 3.5.dp.toPx(), Offset(x, y)); drawCircle(Color.Black.copy(alpha = .6f), 3.5.dp.toPx(), Offset(x, y), style = Stroke(1f)) }
-                3 -> drawRect(Color(0xFFE6E8EB), Offset(x - 2.5f * density, y - 2.5f * density), androidx.compose.ui.geometry.Size(5f * density, 5f * density))
+                3 -> drawCircle(Color(0xFFE6E8EB), 2.4.dp.toPx(), Offset(x, y))
                 else -> drawCircle(Color.White.copy(alpha = .55f), 1.8.dp.toPx(), Offset(x, y))
             }
         }
         androidx.compose.ui.layout.Layout(content = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (value != null) Row(verticalAlignment = Alignment.Bottom) {
-                    val style = if (l.kind == 2) big.copy(fontSize = big.fontSize * 1.12f) else big
-                    Text(value, style = style)
-                    if (ww != null && !temp) Text(" ${units.windLabel}", style = unit, modifier = Modifier.padding(bottom = 1.dp))
-                }
+                if (l.value != null) Text(l.value, style = if (l.kind == 2) big.copy(fontSize = big.fontSize * 1.12f) else big)
                 if (l.kind == 3) Text(l.name ?: "", style = nameStyle)
             }
         }) { m, c ->
             val p = m.first().measure(c.copy(minWidth = 0, minHeight = 0))
-            // Wert über dem Punkt bzw. über dem Ortsnamen der Karte; Weltliste: Name unter dem Wert, Punkt dazwischen
             val top = when (l.kind) {
                 1 -> y - p.height - 9 * density
-                3 -> if (value != null) y - p.height / 2f - 2 * density else y + 5 * density
+                3 -> if (l.value != null) y - p.height / 2f - 2 * density else y + 5 * density
                 2 -> y - p.height - 6 * density
                 else -> y - p.height - 3 * density
             }
@@ -885,12 +893,13 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
     LaunchedEffect(wind, ww) {
         field = if (wind && ww != null) withContext(Dispatchers.Default) { worldFieldBitmap(ww, temp = false, size = 768) } else null
     }
+    val labelArea = idle ?: transform
+    val labels = if (labelArea != null) rememberLabels(labelArea, cities, if (wind) ww else null, false, units, place, null, mini = true) else emptyList()
     Box(modifier) {
         RadarMap(place, if (!wind) shown else null, if (!wind) ui.rainViewer else emptyList(), rvIndex,
-            null, field, null, mini = true, onCities = { c, t -> cities = c; idle = t }) { transform = it }
+            null, field, null, mini = true, onCities = { c, t -> cities = c; idle = t }, labels = labels) { transform = it }
         val t = transform
         if (wind && t != null && ww?.wind != null) WindParticles(ww, t, count = 250)
-        if (t != null) CityLabels(t, idle ?: t, cities, if (wind) ww else null, false, units, place, null, mini = true)
         // Tippfläche über der Karte: nimmt Berührungen an, damit die Karte sie nicht verschluckt.
         Box(Modifier.fillMaxSize().pointerInput(Unit) {
             awaitPointerEventScope { while (true) awaitPointerEvent() }
