@@ -91,7 +91,8 @@ class ScreenshotDump {
         if (forecast) vm.preview(vm.ui.value.copy(nowIndex = frames.size - 3, bytes = vm.ui.value.bytes + (frames.size - 3 to bytes("model_de.png"))))
         val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
-        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f)) } } }
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f),
+            previewCities = listOf(de.schee.wetter.ui.radar.MapCity("Köln", 50.94, 6.96), de.schee.wetter.ui.radar.MapCity("Düsseldorf", 51.23, 6.78), de.schee.wetter.ui.radar.MapCity("Berlin", 52.52, 13.40), de.schee.wetter.ui.radar.MapCity("Hamburg", 53.55, 9.99), de.schee.wetter.ui.radar.MapCity("München", 48.14, 11.58), de.schee.wetter.ui.radar.MapCity("Frankfurt am Main", 50.11, 8.68))) } } }
         settle(); Thread.sleep(500); settle()
         save(activity.window.decorView, File(target, name).also { it.parentFile?.mkdirs() })
     }

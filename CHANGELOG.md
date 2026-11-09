@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.9 – Neue Bedienung im Radar, Werte an Großstädten
+- Oben keine Knöpfe mehr; unten rechts über der Zeitleiste eine Spalte mit Standort, Regen, Wind und Temperatur
+- Regen, Wind und Temperatur sind Schalter und lassen sich kombinieren (z. B. Regen + Wind); mit Regen folgen Wind und Temperatur der Radar-Zeitleiste
+- Großstädte, die die Karte gerade beschriftet, bekommen eigene Wind- und Temperaturwerte über dem Ortsnamen – weltweit, beim Hineinzoomen kommen weitere Städte dazu
+- Werte bleiben frei von Titel, Knöpfen und Zeitleiste; Schließen mit der Zurück-Geste
+
 ## 0.4.8 – Temperaturkarte
 - Neue Ebene „Temperatur“ im Vollbild-Radar (Ebenen-Knopf oben rechts): Farbfläche von kalt (blau) bis heiß (rot) und Werte wie „8°“ im gleichen Raster wie beim Wind, weltweit
 - Zeitleiste stündlich bis +12 Stunden, Legende −10° bis 32°

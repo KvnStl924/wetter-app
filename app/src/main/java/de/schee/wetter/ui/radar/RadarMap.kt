@@ -50,12 +50,15 @@ fun RadarMap(
     radar: Bitmap?,
     /** Weltweites Radar (RainViewer) und welches Bild gerade sichtbar ist (null = keins). */
     rainViewer: List<RainViewer.Frame>, rvIndex: Int?,
-    /** Grobes Gitter über dem sichtbaren Ausschnitt mit fertigem Bild (Regen-Modell oder Wind). */
-    viewOverlay: Pair<WindGrid, Bitmap>?,
-    /** Feines Windgitter über Deutschland mit Bild. */
-    windBase: Pair<WindGrid, Bitmap>?,
+    /** Regen-Modell (Zukunft) außerhalb Deutschlands: grobes Gitter des sichtbaren Ausschnitts mit Bild. */
+    precipView: Pair<WindGrid, Bitmap>?,
+    /** Farbfläche Wind oder Temperatur: grobes Ausschnitt-Gitter und feines Deutschland-Gitter. */
+    fieldView: Pair<WindGrid, Bitmap>?,
+    fieldBase: Pair<WindGrid, Bitmap>?,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
+    /** Großstädte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen). */
+    onCities: (List<MapCity>) -> Unit = {},
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -63,6 +66,7 @@ fun RadarMap(
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var style by remember { mutableStateOf<Style?>(null) }
     val report by rememberUpdatedState(onTransform)
+    val reportCities by rememberUpdatedState(onCities)
 
     val view = remember {
         MapLibre.getInstance(context)
@@ -109,7 +113,23 @@ fun RadarMap(
                 if (view.width > 0) report(MapTransform(b.longitudeWest, b.longitudeEast, b.latitudeNorth, b.latitudeSouth, view.width.toFloat(), view.height.toFloat()))
             }
             m.addOnCameraMoveListener { send() }
-            m.addOnCameraIdleListener { send() }
+            // Großstädte aus den Beschriftungs-Ebenen des Kartenstils (weltweit), größte zuerst
+            fun cities() {
+                runCatching {
+                    val rect = android.graphics.RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
+                    val found = m.queryRenderedFeatures(rect, "place_city_large", "place_city")
+                        .sortedBy { f -> if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 99 }
+                        .mapNotNull { f ->
+                        val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
+                        val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
+                        MapCity(name, p.latitude(), p.longitude())
+                    }.distinctBy { it.name }
+                    reportCities(found)
+                }
+            }
+            m.addOnCameraIdleListener { send(); cities() }
+            // auch wenn nach dem Laden neue Kartenstücke (mit Ortsnamen) angezeigt wurden
+            view.addOnDidBecomeIdleListener { cities() }
             m.setStyle(if (json != null) Style.Builder().fromJson(json) else Style.Builder().fromUri(STYLE)) { s ->
                 AppLog.data("Karte geladen (${System.currentTimeMillis() - started} ms)")
                 val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
@@ -117,11 +137,12 @@ fun RadarMap(
                 val g = WindGrid.GERMANY
                 s.addSource(ImageSource("view", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("wind", quad(g.lon0 - g.step / 2, g.lon0 + (g.cols - 0.5) * g.step, g.lat0 - g.step / 2, g.lat0 + (g.rows - 0.5) * g.step), empty))
+                s.addSource(ImageSource("precip", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
                 // Reihenfolge von unten nach oben: Ausschnitt-Gitter, Wind Deutschland, (RainViewer), DWD-Radar, Ortsnamen
-                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("radar-layer", "radar", 0.9f)).forEach {
+                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
                     if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
                 }
                 style = s
@@ -159,17 +180,18 @@ fun RadarMap(
     LaunchedEffect(style, radar) {
         (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty)
     }
-    LaunchedEffect(style, windBase) {
-        (style?.getSource("wind") as? ImageSource)?.setImage(windBase?.second ?: empty)
+    LaunchedEffect(style, fieldBase) {
+        (style?.getSource("wind") as? ImageSource)?.setImage(fieldBase?.second ?: empty)
     }
-    LaunchedEffect(style, viewOverlay) {
-        val src = style?.getSource("view") as? ImageSource ?: return@LaunchedEffect
-        val v = viewOverlay
-        if (v == null) { src.setImage(empty); return@LaunchedEffect }
+    fun setGrid(id: String, v: Pair<WindGrid, Bitmap>?) {
+        val src = style?.getSource(id) as? ImageSource ?: return
+        if (v == null) { src.setImage(empty); return }
         val g = v.first
         src.setCoordinates(quad(g.lon0 - g.step / 2, g.lon1 + g.step / 2, (g.lat0 - g.step / 2).coerceAtLeast(-85.0), (g.lat1 + g.step / 2).coerceAtMost(85.0)))
         src.setImage(v.second)
     }
+    LaunchedEffect(style, fieldView) { setGrid("view", fieldView) }
+    LaunchedEffect(style, precipView) { setGrid("precip", precipView) }
 
     LaunchedEffect(centerTick) {
         if (centerTick == 0) return@LaunchedEffect
