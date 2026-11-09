@@ -63,7 +63,9 @@ class RadarTest {
         assertTrue((0 until view.hours.size).any { h -> (0 until 16).any { r -> (0 until 16).any { c -> view.precip(h, r, c) > 0 } } })
         val field = de.schee.wetter.data.WindField(g, view)
         val o = DoubleArray(2); field.at(0, 40.0, -5.0, o); assertTrue(hypot(o[0], o[1]) in 0.0..200.0)
-        assertEquals(567, WindGrid.GERMANY.rows * WindGrid.GERMANY.cols)
+        assertEquals(154, WindGrid.GERMANY.rows * WindGrid.GERMANY.cols)
+        // weit herausgezoomt (größer als die Erde) darf nicht abstürzen
+        val s = WindGrid.viewSpec(-89.0, 89.0, -400.0, 400.0); assertTrue(s.lat0 >= -80.0 && s.lat0 + s.step * (s.rows - 1) <= 80.0001)
         assertTrue(g.hours.size >= 12)
         val out = DoubleArray(2)
         g.at(0, 50.5, 7.0, out)

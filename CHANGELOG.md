@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.5 – Absturz beim Herauszoomen behoben, weniger Abrufe
+- Absturz behoben: Beim sehr weiten Herauszoomen im Radar stürzte die App ab
+- Open-Meteo zählt jeden Gitterpunkt als Abruf; die Windgitter sind jetzt kleiner (154 bzw. 100 Punkte), Nachladen höchstens alle 5 Sekunden, bei „zu viele Abrufe“ eine Minute Pause – sonst konnte sogar die normale Vorhersage kurz ausfallen
+- Weltweites Radar lädt größere Kacheln und nur das aktuelle und nächste Bild – bleibt unter der Grenze von 100 Abrufen pro Minute
+- Quellenangabe mit Link zu RainViewer (Info-Knopf auf der Karte)
+
 ## 0.4.4 – Radar und Wind weltweit
 - Karte frei verschiebbar und zoombar, von der Weltkarte bis zur Stadt
 - Regen weltweit: letzte 2 Stunden bis jetzt über RainViewer (10-Minuten-Schritte); in Deutschland weiterhin das genauere DWD-Radar

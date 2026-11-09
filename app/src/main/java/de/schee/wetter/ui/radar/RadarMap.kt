@@ -136,16 +136,22 @@ fun RadarMap(
         rainViewer.forEachIndexed { i, f ->
             if (s.getSource("rv-$i") != null) return@forEachIndexed
             val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", f.tiles).apply {
-                maxZoom = 7f; attribution = "Radar weltweit: RainViewer"
+                maxZoom = 7f; attribution = "<a href=\"https://www.rainviewer.com/\">Radar weltweit: RainViewer</a>"
             }
-            s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 256))
+            s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 512))
             s.addLayerBelow(RasterLayer("rv-layer-$i", "rv-$i").withProperties(
-                PropertyFactory.rasterOpacity(0f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
+                PropertyFactory.rasterOpacity(0f), PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
         }
     }
     LaunchedEffect(style, rainViewer, rvIndex) {
         val s = style ?: return@LaunchedEffect
-        rainViewer.indices.forEach { i -> s.getLayer("rv-layer-$i")?.setProperties(PropertyFactory.rasterOpacity(if (i == rvIndex) 0.8f else 0f)) }
+        // Nur aktuelles und nächstes Bild laden (unsichtbare Ebenen mit visibility=none laden keine Kacheln).
+        rainViewer.indices.forEach { i ->
+            val active = rvIndex != null && (i == rvIndex || i == rvIndex + 1)
+            s.getLayer("rv-layer-$i")?.setProperties(
+                PropertyFactory.visibility(if (active) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE),
+                PropertyFactory.rasterOpacity(if (i == rvIndex) 0.8f else 0f))
+        }
     }
 
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.

@@ -103,21 +103,28 @@ class RadarViewModel : ViewModel() {
     }
 
     private var viewJob: Job? = null
+    private var viewPauseUntil = 0L
 
     /**
      * Sichtbarer Ausschnitt nach dem Verschieben/Zoomen: Liegt er (teilweise) außerhalb des Deutschland-Gitters,
-     * wird ein grobes Gitter für genau diesen Ausschnitt geladen (16 × 16 Punkte, echte Werte).
+     * wird ein grobes Gitter für genau diesen Ausschnitt geladen (10 × 10 Punkte, echte Werte).
      */
     fun ensureView(south: Double, north: Double, west: Double, east: Double) {
         val g = WindGrid.GERMANY
         if (south >= g.lat0 && north <= g.lat0 + (g.rows - 1) * g.step && west >= g.lon0 && east <= g.lon0 + (g.cols - 1) * g.step) return
         val span = maxOf(north - south, east - west)
-        _ui.value.windView?.let { v -> if (v.covers(south, north, west, east) && v.step <= span / 6) return }
-        if (viewJob?.isActive == true) viewJob?.cancel()
+        _ui.value.windView?.let { v -> if (v.covers(south, north, west, east) && v.step <= span / 3) return }
+        // Open-Meteo schonen: höchstens ein Abruf alle 5 s (der letzte Wunsch wird nachgeholt),
+        // nach „zu viele Abrufe“ (429) eine Minute Pause.
+        val wait = (viewPauseUntil - System.currentTimeMillis()).coerceAtLeast(0)
+        viewJob?.cancel()
         viewJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(wait)
+            viewPauseUntil = System.currentTimeMillis() + 5_000
             val spec = WindGrid.viewSpec(south, north, west, east)
             val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Wind + Regen)") } }
             r.onSuccess { _ui.value = _ui.value.copy(windView = it) }
+            r.onFailure { if (it.message?.contains("429") == true) { viewPauseUntil = System.currentTimeMillis() + 60_000; AppLog.data("Open-Meteo: zu viele Abrufe – Ausschnitt-Gitter 1 Minute pausiert") } }
         }
     }
 

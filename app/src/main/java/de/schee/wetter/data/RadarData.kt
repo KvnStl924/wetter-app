@@ -200,6 +200,8 @@ object RadarData {
 /**
  * Weltweites Radar (letzte 2 Stunden bis jetzt, 10-Minuten-Schritte) von RainViewer – kostenlos,
  * Kacheln bis Zoomstufe 7 (darüber werden sie vergrößert). Seit 2026 ohne Vorhersage („nowcast“ leer).
+ * Bedingungen (rainviewer.com/api): nur privat/Bildung, Quelle mit Link nennen, höchstens 100 Abrufe pro Minute
+ * → große 512er-Kacheln und nur das aktuelle und das nächste Bild laden.
  * In Deutschland liegt das genauere DWD-Radar darüber.
  */
 object RainViewer {
@@ -211,7 +213,7 @@ object RainViewer {
         val past = json.getJSONObject("radar").getJSONArray("past")
         return (0 until past.length()).map { i ->
             val f = past.getJSONObject(i)
-            Frame(Instant.ofEpochSecond(f.getLong("time")), "$host${f.getString("path")}/256/{z}/{x}/{y}/2/1_1.png")
+            Frame(Instant.ofEpochSecond(f.getLong("time")), "$host${f.getString("path")}/512/{z}/{x}/{y}/2/1_1.png")
         }
     }
 

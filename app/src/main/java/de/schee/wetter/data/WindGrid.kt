@@ -11,8 +11,8 @@ import kotlin.math.sin
 
 /**
  * Windfeld als Gitter (Open-Meteo, ICON/global, stündlich für 13 Stunden).
- *  - [germany]: fein, 0,5° über Deutschland und Nachbarländer (567 Punkte), beim Öffnen der Windebene
- *  - [forView]: grob, 16 × 16 Punkte über dem sichtbaren Kartenausschnitt – wird nachgeladen, wenn man
+ *  - [GERMANY]: 1° über Deutschland und Nachbarländer (154 Punkte), beim Öffnen der Windebene
+ *  - [viewSpec]: grob, 10 × 10 Punkte über dem sichtbaren Kartenausschnitt – wird nachgeladen, wenn man
  *    die Karte über das Deutschland-Gitter hinaus verschiebt oder herauszoomt (echte Werte, keine Simulation)
  */
 class WindGrid(
@@ -30,13 +30,15 @@ class WindGrid(
     data class Spec(val lat0: Double, val lon0: Double, val step: Double, val rows: Int, val cols: Int)
 
     companion object {
-        val GERMANY = Spec(46.0, 4.0, 0.5, 21, 27)
-        const val VIEW_POINTS = 16
+        // 1°-Raster (154 Punkte): Open-Meteo zählt jeden Punkt als Abruf (Grenze 600/Minute) – feiner wurde es am 09.11. zu viel.
+        val GERMANY = Spec(46.0, 4.0, 1.0, 11, 14)
+        const val VIEW_POINTS = 10
 
         /** Grobes Gitter über einem Ausschnitt (mit Rand), Breite auf ±80° begrenzt. */
         fun viewSpec(south: Double, north: Double, west: Double, east: Double): Spec {
             val span = maxOf(north - south, east - west) * 1.3
-            val step = maxOf(span / (VIEW_POINTS - 1), 0.25)
+            // höchstens die ganze Erde (160° Breite, 360° Länge) – sonst Absturz bei weit herausgezoomter Karte (09.11.2026)
+            val step = (span / (VIEW_POINTS - 1)).coerceIn(0.25, 160.0 / (VIEW_POINTS - 1))
             val cLat = (south + north) / 2; val cLon = (west + east) / 2
             val lat0 = (cLat - step * (VIEW_POINTS - 1) / 2).coerceIn(-80.0, 80.0 - step * (VIEW_POINTS - 1))
             val lon0 = cLon - step * (VIEW_POINTS - 1) / 2
