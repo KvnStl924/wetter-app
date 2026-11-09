@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.7 – Windwerte auf der Karte
+- Windkarte zeigt die Windgeschwindigkeit als schlichten Text („12 km/h“) in einem regelmäßigen, versetzten Raster – dichter beim Hineinzoomen, weiter beim Herauszoomen; die Werte stehen fest auf der Karte und springen beim Verschieben nicht
+- Am eigenen Ort steht der Wert mit kleinem Punkt statt der Zahl im Kreis
+- Einheit wie in den Einstellungen (km/h, m/s oder Bft)
+
 ## 0.4.6 – Radar vorgeladen
 - Radarbilder und Winddaten werden schon beim Öffnen der App geladen; das Vollbild-Radar ist dadurch sofort bereit
 - Wie bisher nur bei geöffneter App: Beim Verlassen wird das Laden abgebrochen

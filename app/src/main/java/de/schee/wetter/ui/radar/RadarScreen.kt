@@ -122,6 +122,7 @@ fun RadarScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var centerTick by remember { mutableIntStateOf(0) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val units = remember { de.schee.wetter.data.Units.from(context) }
 
     // Blauer Punkt: Live-Standort, nur solange das Radar sichtbar ist (kein Hintergrund).
     LaunchedEffect(Unit) {
@@ -214,7 +215,8 @@ fun RadarScreen(
         if (layer == RadarLayer.WIND && t != null) field?.let { WindParticles(it, windHour, t) }
         val f = fix
         if (f != null && t != null) MyLocationDot(f, t)
-        if (place != null && t != null) PlaceMarker(place, t, if (layer == RadarLayer.WIND) field?.let { windLabel(it, windHour, place) } else null, f)
+        if (layer == RadarLayer.WIND && t != null && field != null) WindLabels(field, windHour, t, units, place, f)
+        else if (place != null && t != null) PlaceMarker(place, t, null, f)
 
         // Oben: Schließen, Titel, Ebenen
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -626,4 +628,72 @@ private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Com
     }
     drawPath(diamond(size.height * .1f), Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(s))
     drawPath(diamond(size.height * .42f), Color.White.copy(alpha = .6f), style = androidx.compose.ui.graphics.drawscope.Stroke(s))
+}
+
+// ------------------------------------------------------------------ Windwerte als Text
+
+/** Abstand der Windwerte in Grad: so gewählt, dass etwa alle 100 dp ein Wert steht (feste Rasterpunkte → kein Springen). */
+private fun labelSpacing(t: MapTransform, density: Float, factor: Double = 1.0): Double {
+    val target = (t.east - t.west) / t.w * 105 * density * factor
+    val steps = listOf(0.05, 0.1, 0.2, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 45.0)
+    return steps.lastOrNull { it <= target * 1.15 } ?: steps.first()
+}
+
+/**
+ * Windgeschwindigkeit als schlichter Text („45 km/h“, ohne Kreis) in einem regelmäßigen Raster wie bei
+ * Wetter-Apps üblich. Jede zweite Reihe ist um einen halben Abstand versetzt. Am eigenen Ort steht der Wert
+ * mit kleinem Punkt; Rasterwerte in der Nähe entfallen, damit nichts übereinander liegt.
+ */
+@Composable
+private fun WindLabels(g: de.schee.wetter.data.WindField, hour: Int, t: MapTransform, units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?) {
+    val density = LocalDensity.current.density
+    val h = hour.coerceIn(0, g.hours.size - 1)
+    data class L(val x: Float, val y: Float, val value: Int, val own: Boolean)
+    val labels = remember(t, h, g) {
+        val out = mutableListOf<L>()
+        val w = DoubleArray(2)
+        val avoid = listOfNotNull(place?.let { t.x(it.lon) to t.y(it.lat) }, fix?.let { t.x(it.lon) to t.y(it.lat) })
+        place?.let { p ->
+            g.at(h, p.lat, p.lon, w)
+            out += L(t.x(p.lon), t.y(p.lat), units.wNum(hypot(w[0], w[1])), true)
+        }
+        val sp = labelSpacing(t, density)
+        // senkrecht: auf der Karte (Mercator) ist ein Breitengrad länger als ein Längengrad → Abstand angleichen
+        val latSp = labelSpacing(t, density, kotlin.math.cos(Math.toRadians((t.north + t.south) / 2)))
+        var row = Math.floor(t.south / latSp).toInt()
+        while (row * latSp <= t.north + latSp) {
+            val lat = row * latSp
+            val shift = if (row % 2 == 0) 0.0 else sp / 2
+            var col = Math.floor((t.west - shift) / sp).toInt()
+            while (col * sp + shift <= t.east + sp) {
+                val lon = col * sp + shift
+                col++
+                if (g.inside(lat, lon) < 0.3) continue
+                val x = t.x(lon); val y = t.y(lat)
+                if (x < 0 || y < 0 || x > t.w || y > t.h) continue
+                if (avoid.any { (ax, ay) -> hypot((ax - x).toDouble(), (ay - y).toDouble()) < 60 * density }) continue
+                g.at(h, lat, lon, w)
+                out += L(x, y, units.wNum(hypot(w[0], w[1])), false)
+            }
+            row++
+        }
+        out
+    }
+    val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .85f), Offset(0f, 1.5f), 6f)
+    val big = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow)
+    val unit = WType.label.copy(color = Color.White.copy(alpha = .9f), fontWeight = FontWeight.SemiBold, shadow = shadow)
+    for (l in labels) {
+        androidx.compose.ui.layout.Layout(content = {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(l.value.toString(), style = if (l.own) big.copy(fontSize = big.fontSize * 1.15f) else big)
+                Text(" ${units.windLabel}", style = unit, modifier = Modifier.padding(bottom = 1.dp))
+            }
+        }) { m, c ->
+            val p = m.first().measure(c.copy(minWidth = 0, minHeight = 0))
+            layout(p.width, p.height) { p.place((l.x - p.width / 2).toInt(), (l.y - p.height / 2 - if (l.own) 20 * density else 0f).toInt()) }
+        }
+        if (l.own) Canvas(Modifier.fillMaxSize()) {
+            drawCircle(Color.White, 3.5.dp.toPx(), Offset(l.x, l.y)); drawCircle(Color.Black.copy(alpha = .6f), 3.5.dp.toPx(), Offset(l.x, l.y), style = androidx.compose.ui.graphics.drawscope.Stroke(1f))
+        }
+    }
 }
