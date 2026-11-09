@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.3.1 – Update-Download repariert
+- Update-Download läuft jetzt über die GitHub-Schnittstelle; der normale Download-Link von GitHub antwortete für dieses Projekt nur mit Fehler 504
+- Bei kurzen GitHub-Störungen versucht die App es automatisch ein zweites Mal
+- Einstellungen › Drive & Logging zeigt den letzten Upload-Fehler an
+
 ## 0.3.0 – Kacheln
 - 12 Kacheln im iOS-Stil: Unwetterwarnung, Regenradar, Regen nächste 2 Std., Wind (Kompass), Windkarte, Gefühlt, Feuchtigkeit, Niederschlag heute, Sichtweite, Durchschnitt, Sonnenauf-/untergang, Mondphase
 - Amtliche DWD-Unwetterwarnungen für deinen Ort, ganz oben, nur wenn aktiv (Tippen zeigt Details)

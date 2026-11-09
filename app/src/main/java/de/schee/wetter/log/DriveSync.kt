@@ -77,8 +77,10 @@ object DriveSync {
                 val bytes = file.length()
                 if (file.delete()) ok++
                 AppLog.i(AppLog.Cat.DRIVE, "Upload ok (${file.name}, ${bytes / 1024} kB, ${System.currentTimeMillis() - started} ms) → lokal gelöscht")
+                setLastError(context, null)
             } catch (e: Exception) {
                 AppLog.error("Upload fehlgeschlagen (${file.name}) – bleibt bis zum nächsten Öffnen liegen", e)
+                setLastError(context, "${java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(java.util.Date())} – ${e.message ?: e.javaClass.simpleName}")
                 break // ohne Netz scheitern auch die übrigen
             }
         }
@@ -103,6 +105,13 @@ object DriveSync {
     }
 
     fun countPending(): Int = AppLog.pendingFiles().size
+
+    /** Letzter Upload-Fehler zum Anzeigen in den Einstellungen (null = zuletzt alles ok). */
+    fun lastError(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("last_error", null)
+
+    private fun setLastError(context: Context, text: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("last_error", text).apply()
+    }
 
     // ---------- Ordner-Hilfen (nach StreetLab DriveFolders) ----------
 

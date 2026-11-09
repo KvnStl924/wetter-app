@@ -150,6 +150,7 @@ private fun DriveTile() {
             if (pending == 0) "Keine Dateien warten auf den Upload." else "$pending Datei(en) warten auf den Upload.",
             style = WType.bodyDim,
         )
+        DriveSync.lastError(context)?.let { Text("Letzter Upload-Fehler: $it", style = WType.bodyDim.copy(color = WColors.Warn)) }
         ActionButton(if (tree == null) "Ordner auswählen" else "Ordner neu wählen", "Einstellungen → Drive-Ordner wählen") { pick.launch(null) }
         if (pending > 0 && tree != null) {
             ActionButton("Jetzt hochladen", "Einstellungen → Logs jetzt hochladen", color = WColors.Good) {

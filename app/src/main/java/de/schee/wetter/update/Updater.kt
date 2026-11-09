@@ -31,7 +31,15 @@ data class Version(val major: Int, val minor: Int, val patch: Int) : Comparable<
     }
 }
 
-data class Release(val version: Version, val notes: String, val apkUrl: String, val apkName: String, val apkBytes: Long, val sha256Url: String?)
+/**
+ * [apkApiUrl]/[shaApiUrl] = Download über api.github.com (Accept: application/octet-stream).
+ * Grund: Am 09.11.2026 lieferte github.com/…/releases/download/… für dieses Projekt nur „504“,
+ * der API-Weg funktionierte. Der normale Link bleibt als Ersatz.
+ */
+data class Release(
+    val version: Version, val notes: String, val apkUrl: String, val apkName: String, val apkBytes: Long, val sha256Url: String?,
+    val apkApiUrl: String? = null, val shaApiUrl: String? = null,
+)
 
 /**
  * Update nur auf Knopfdruck: [check] fragt das neueste GitHub-Release ab,
@@ -63,15 +71,18 @@ object Updater {
             val version = Version.parse(json.getString("tag_name")) ?: throw IOException("Unbekannte Versionsangabe ${json.getString("tag_name")}")
             val assets = json.getJSONArray("assets")
             var apk: JSONObject? = null
-            var sha: String? = null
+            var sha: JSONObject? = null
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
                 val n = a.getString("name")
                 if (n.endsWith(".apk")) apk = a
-                if (n.endsWith(".apk.sha256")) sha = a.getString("browser_download_url")
+                if (n.endsWith(".apk.sha256")) sha = a
             }
             apk ?: throw IOException("Release ${json.getString("tag_name")} enthält keine APK")
-            Release(version, json.optString("body", "").trim(), apk.getString("browser_download_url"), apk.getString("name"), apk.optLong("size", -1), sha)
+            Release(
+                version, json.optString("body", "").trim(), apk.getString("browser_download_url"), apk.getString("name"), apk.optLong("size", -1),
+                sha?.getString("browser_download_url"), apk.optString("url").ifBlank { null }, sha?.optString("url")?.ifBlank { null },
+            )
                 .also { AppLog.update("Neueste Version auf GitHub: ${it.version}") }
         } finally {
             conn.disconnect()
@@ -89,13 +100,9 @@ object Updater {
         val target = File(dir, release.apkName)
         val started = System.currentTimeMillis()
         AppLog.update("Download startet: ${release.apkName}")
-        val conn = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000; readTimeout = 30_000; instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Wetter-App/${BuildConfig.VERSION_NAME}")
-        }
+        val conn = open(listOfNotNull(release.apkApiUrl, release.apkUrl), "APK")
         val digest = MessageDigest.getInstance("SHA-256")
         try {
-            if (conn.responseCode != 200) throw IOException("Download fehlgeschlagen (${conn.responseCode})")
             val total = conn.contentLengthLong.takeIf { it > 0 } ?: release.apkBytes
             conn.inputStream.use { input ->
                 target.outputStream().use { out ->
@@ -114,8 +121,11 @@ object Updater {
             conn.disconnect()
         }
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        release.sha256Url?.let { url ->
-            val expected = URL(url).openStream().bufferedReader().use { it.readText() }.trim().split(Regex("\\s+")).first().lowercase()
+        val shaUrls = listOfNotNull(release.shaApiUrl, release.sha256Url)
+        if (shaUrls.isNotEmpty()) {
+            val c = open(shaUrls, "Prüfsumme")
+            val expected = try { c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
+                .trim().split(Regex("\\s+")).first().lowercase()
             if (expected != actual) {
                 target.delete()
                 AppLog.update("Prüfsumme falsch (erwartet $expected, erhalten $actual) – Datei verworfen")
@@ -124,6 +134,31 @@ object Updater {
         }
         AppLog.update("Download fertig (${target.length() / 1024} kB, ${System.currentTimeMillis() - started} ms, Prüfsumme ok)")
         target
+    }
+
+    /**
+     * Öffnet die erste Adresse, die mit 200 antwortet. Jede Adresse bekommt zwei Versuche
+     * (GitHub antwortet gelegentlich kurz mit 502/503/504). Jeder Fehlversuch wird protokolliert.
+     */
+    private fun open(urls: List<String>, what: String): HttpURLConnection {
+        var last = "keine Adresse"
+        for (url in urls) {
+            val viaApi = url.startsWith("https://api.github.com/")
+            repeat(2) { attempt ->
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15_000; readTimeout = 30_000; instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Wetter-App/${BuildConfig.VERSION_NAME}")
+                    if (viaApi) setRequestProperty("Accept", "application/octet-stream")
+                }
+                val code = runCatching { conn.responseCode }.getOrElse { e -> last = e.message ?: e.javaClass.simpleName; -1 }
+                if (code == 200) return conn
+                conn.disconnect()
+                if (code != -1) last = "Code $code"
+                AppLog.update("$what-Download ${if (viaApi) "über API" else "über Link"} Versuch ${attempt + 1}: $last")
+                if (attempt == 0) Thread.sleep(1500)
+            }
+        }
+        throw IOException("Download fehlgeschlagen ($last). Bitte später erneut versuchen.")
     }
 
     fun canInstall(context: Context): Boolean =
