@@ -95,6 +95,14 @@ fun WarningContent(d: TileData, expanded: Boolean) {
 
 @Composable
 fun RadarContent(d: TileData) {
+    if (LiveMaps.enabled) {
+        // Live-Karte mit aktuellem Radar (DWD, weltweit RainViewer) um den Ort
+        de.schee.wetter.ui.radar.MiniRadar(de.schee.wetter.ui.radar.RadarPlace("", d.lat, d.lon, d.units.t(d.f.current.temp)), wind = false,
+            Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0B1220)))
+        val rainNow = (d.maps?.radar?.let { de.schee.wetter.data.RadarData.hasRain(it) } ?: false)
+        Text(if (rainNow) "Aktuell Niederschlag in der Umgebung · Tippen für Vollbild" else "Kein Niederschlag in der Umgebung · Tippen für Vollbild", style = WType.bodyDim)
+        return
+    }
     Box(Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0B1220))) {
         MapBase(d.maps)
         d.maps?.radar?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
@@ -226,6 +234,13 @@ private fun Compass(fromDeg: Int, value: Int, unit: String, modifier: Modifier) 
 
 @Composable
 fun WindMapContent(d: TileData) {
+    if (LiveMaps.enabled) {
+        val c0 = d.f.current
+        de.schee.wetter.ui.radar.MiniRadar(de.schee.wetter.ui.radar.RadarPlace("", d.lat, d.lon, d.units.t(c0.temp)), wind = true,
+            Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0A2340)))
+        Text("Wind aus ${Units.compass(c0.windDir)} mit ${d.units.w(c0.wind)}, Böen bis ${d.units.w(c0.gusts)} · Tippen für Vollbild", style = WType.bodyDim)
+        return
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var t by remember { mutableFloatStateOf(0f) }
     val animate = de.schee.wetter.ui.sky.LocalAnimate.current
@@ -435,3 +450,8 @@ fun sunTitle(d: TileData): String {
 
 /** Überschrift der Mond-Kachel = Phasenname, wie bei Apple. */
 fun moonTitle(d: TileData): String = Astro.moon(d.now.atZone(ZoneId.of(d.f.timezone)).toInstant().toEpochMilli()).phaseName
+
+/** Live-Karten (MapLibre) in den Kacheln – nicht in den Testbildern am PC (Robolectric kann keine Karte zeichnen). */
+object LiveMaps {
+    val enabled: Boolean get() = android.os.Build.FINGERPRINT != "robolectric"
+}

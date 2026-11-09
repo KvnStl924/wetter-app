@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.11 – Live-Karten in den Kacheln
+- Kachel „Regenradar“ zeigt die echte Karte um den Ort mit dem aktuellen Live-Radar (DWD, weltweit RainViewer)
+- Kachel „Windkarte“ zeigt die echte Karte mit Windfarben, wandernden Windlinien und Windwerten
+- Beide nicht bedienbar (kein Verschieben/Zoomen) – Tippen öffnet wie gewohnt das Vollbild, langes Drücken bearbeitet die Kacheln
+
 ## 0.4.10 – Temperatur und Wind weltweit zuverlässig
 - Beim weiten Herauszoomen blieb nur ein Rechteck mit Werten: Open-Meteo hatte wegen zu vieler Abrufe kurz abgelehnt
 - Die App lädt jetzt ein doppelt so großes Gebiet wie sichtbar (weniger Nachladen) und hält ein Abruf-Budget ein – sie wartet kurz statt abgelehnt zu werden

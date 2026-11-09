@@ -59,6 +59,8 @@ fun RadarMap(
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
     /** Großstädte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen). */
     onCities: (List<MapCity>) -> Unit = {},
+    /** Kachel-Modus: kleine, nicht bedienbare Karte (kein Verschieben/Zoomen, keine Knöpfe), Zoomstufe fest. */
+    mini: Boolean = false,
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -70,7 +72,9 @@ fun RadarMap(
 
     val view = remember {
         MapLibre.getInstance(context)
-        MapView(context).apply { onCreate(null) }
+        // In der Kachel als TextureView, damit die Karte beim Scrollen der Hauptseite sauber mitläuft.
+        val opts = org.maplibre.android.maps.MapLibreMapOptions.createFromAttributes(context).textureMode(mini)
+        MapView(context, opts).apply { onCreate(null) }
     }
 
     DisposableEffect(lifecycle) {
@@ -101,13 +105,14 @@ fun RadarMap(
             m.uiSettings.apply {
                 isRotateGesturesEnabled = false; isTiltGesturesEnabled = false; isCompassEnabled = false
                 isLogoEnabled = false
-                isAttributionEnabled = true
+                isAttributionEnabled = !mini
                 setAttributionMargins(24, 0, 0, (context.resources.displayMetrics.density * 210).toInt())
+                if (mini) setAllGesturesEnabled(false)
             }
             // weltweit: frei verschiebbar, von der Weltkarte bis zur Stadt
             m.setMinZoomPreference(1.5); m.setMaxZoomPreference(11.5)
             val target = place?.let { LatLng(it.lat, it.lon) } ?: LatLng(51.1, 10.4)
-            m.cameraPosition = CameraPosition.Builder().target(target).zoom(if (place != null) 7.2 else 5.4).build()
+            m.cameraPosition = CameraPosition.Builder().target(target).zoom(if (mini) 7.0 else if (place != null) 7.2 else 5.4).build()
             fun send() {
                 val b = m.projection.visibleRegion.latLngBounds
                 if (view.width > 0) report(MapTransform(b.longitudeWest, b.longitudeEast, b.latitudeNorth, b.latitudeSouth, view.width.toFloat(), view.height.toFloat()))
@@ -192,6 +197,13 @@ fun RadarMap(
     }
     LaunchedEffect(style, fieldView) { setGrid("view", fieldView) }
     LaunchedEffect(style, precipView) { setGrid("precip", precipView) }
+
+    // Kachel: immer auf den aktuellen Ort ausgerichtet
+    LaunchedEffect(map, place?.lat, place?.lon) {
+        if (!mini) return@LaunchedEffect
+        val p = place ?: return@LaunchedEffect
+        map?.cameraPosition = CameraPosition.Builder().target(LatLng(p.lat, p.lon)).zoom(7.0).build()
+    }
 
     LaunchedEffect(centerTick) {
         if (centerTick == 0) return@LaunchedEffect

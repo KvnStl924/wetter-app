@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -348,7 +349,7 @@ private fun windLabel(g: de.schee.wetter.data.WindField, hour: Int, p: RadarPlac
  * Striche, die aus dem Bild geraten, entstehen sofort neu im sichtbaren Teil.
  */
 @Composable
-private fun WindParticles(g: de.schee.wetter.data.WindField, hour: Int, t: MapTransform) {
+internal fun WindParticles(g: de.schee.wetter.data.WindField, hour: Int, t: MapTransform) {
     val animate = LocalAnimate.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val n = 900
@@ -665,9 +666,10 @@ private fun labelSpacing(t: MapTransform, density: Float, factor: Double = 1.0):
  * Rasterwerte in der Nähe von Städten und dem eigenen Ort entfallen, damit nichts übereinander liegt.
  */
 @Composable
-private fun ValueLabels(
+internal fun ValueLabels(
     g: de.schee.wetter.data.WindField, hour: Int, t: MapTransform, units: de.schee.wetter.data.Units,
     place: RadarPlace?, fix: LocationSource.Fix?, wind: Boolean, temp: Boolean, cities: List<MapCity>,
+    mini: Boolean = false,
 ) {
     val density = LocalDensity.current.density
     val h = hour.coerceIn(0, g.hours.size - 1)
@@ -686,7 +688,7 @@ private fun ValueLabels(
         val taken = mutableListOf<Pair<Float, Float>>()
         fun free(x: Float, y: Float, dist: Float) = taken.none { (ax, ay) -> hypot((ax - x).toDouble(), (ay - y).toDouble()) < dist * density } &&
             // frei halten: Titel oben, Zeitleiste unten, Knopf-Spalte rechts unten
-            y > 90 * density && y < t.h - 215 * density && !(x > t.w - 78 * density && y > t.h - 470 * density)
+            (mini || (y > 90 * density && y < t.h - 215 * density && !(x > t.w - 78 * density && y > t.h - 470 * density)))
         place?.let { p -> make(p.lat, p.lon, 2)?.let { out += it; taken += it.x to it.y } }
         fix?.let { taken += t.x(it.lon) to t.y(it.lat) }
         for (c in cities.take(40)) {
@@ -784,4 +786,45 @@ private fun ToggleButton(on: Boolean, onClick: () -> Unit, content: @Composable 
     drawRoundRect(Color.White, Offset(s * .4f, s * .06f), androidx.compose.ui.geometry.Size(s * .2f, s * .6f), androidx.compose.ui.geometry.CornerRadius(s * .1f), style = st)
     drawCircle(Color.White, s * .17f, Offset(s * .5f, s * .76f))
     drawLine(Color.White, Offset(s * .5f, s * .35f), Offset(s * .5f, s * .7f), 2.2.dp.toPx(), StrokeCap.Round)
+}
+
+// ------------------------------------------------------------------ Kacheln auf der Hauptseite
+
+/**
+ * Live-Karte für die Kacheln „Regenradar“ und „Windkarte“: echte Karte um den Ort, nicht bedienbar
+ * (Tippen öffnet wie gewohnt das Vollbild – die Tippfläche liegt über der Karte).
+ * Nutzt die beim Öffnen der App vorgeladenen Radar- und Winddaten. [wind] = Windkarte, sonst Regen.
+ */
+@Composable
+fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, vm: RadarViewModel = viewModel()) {
+    val ui by vm.ui.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val units = remember { de.schee.wetter.data.Units.from(context) }
+    var transform by remember { mutableStateOf<MapTransform?>(null) }
+    var cities by remember { mutableStateOf<List<MapCity>>(emptyList()) }
+    var shown by remember { mutableStateOf<Bitmap?>(null) }
+    val nowBytes = ui.bytes[ui.nowIndex]
+    LaunchedEffect(nowBytes, wind) {
+        if (wind) return@LaunchedEffect
+        val b = nowBytes ?: return@LaunchedEffect
+        shown = withContext(Dispatchers.Default) { RadarData.render(b, RadarData.Kind.RADAR) }
+    }
+    val rvIndex = ui.frames.getOrNull(ui.nowIndex)?.let { de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, it.time) }
+    val hour = ui.wind?.hourIndex(java.time.Instant.now()) ?: 0
+    val fieldBase = remember(wind, ui.wind, hour) { if (wind) ui.wind?.let { it to windBitmap(it, hour) } else null }
+    Box(modifier) {
+        RadarMap(place, if (!wind) shown else null, if (!wind) ui.rainViewer else emptyList(), rvIndex,
+            null, null, fieldBase, mini = true, onCities = { cities = it }) { transform = it }
+        val t = transform
+        val field = ui.wind?.let { de.schee.wetter.data.WindField(it, null) }
+        if (wind && t != null && field != null) {
+            WindParticles(field, hour, t)
+            ValueLabels(field, hour, t, units, place, null, wind = true, temp = false, cities = cities, mini = true)
+        } else if (t != null) PlaceMarker(place, t, null, null)
+        // Tippfläche über der Karte: nimmt Berührungen an, damit die Karte sie nicht verschluckt;
+        // das Tippen selbst wertet die Kachel aus (Vollbild öffnen, lange drücken = bearbeiten).
+        Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            awaitPointerEventScope { while (true) awaitPointerEvent() }
+        })
+    }
 }
