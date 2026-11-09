@@ -343,6 +343,7 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
         if (!animate) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var last = 0L
+            var lastSpan = 0.0
             val w = DoubleArray(2)
             while (isActive) {
                 androidx.compose.runtime.withFrameNanos { now ->
@@ -351,6 +352,13 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
                     val m = tr
                     val a = area(m)
                     val degX = (m.east - m.west) / m.w; val degY = (m.north - m.south) / m.h
+                    // Deutlich gezoomt (z. B. schnell herausgezoomt): alle Striche sofort neu im ganzen Bild verteilen,
+                    // sonst hängen sie noch im alten, kleinen Ausschnitt.
+                    val span = m.east - m.west
+                    if (lastSpan > 0 && (span > lastSpan * 1.25 || span < lastSpan / 1.25)) {
+                        for (p in parts) { spawn(p, a); p[2] = Random.nextDouble() * .8 }
+                        lastSpan = span
+                    } else if (lastSpan == 0.0) lastSpan = span
                     for (p in parts) {
                         g.at(h, p[0], p[1], w)
                         // 1 km/h ≈ 1,2 dp pro Sekunde auf dem Bildschirm – gleich schnell bei jedem Zoom.

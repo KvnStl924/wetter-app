@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.3 – Windlinien beim Zoomen
+- Beim schnellen Heraus- oder Hineinzoomen werden die Windlinien sofort über den ganzen sichtbaren Bereich verteilt, statt im alten Ausschnitt hängen zu bleiben
+
 ## 0.4.2 – Live-Standort im Radar
 - Blauer Punkt zeigt den eigenen Standort live auf der Karte (mit Genauigkeitskreis, sanft pulsierend)
 - Neuer Knopf oben (Pfeil) schwenkt die Karte auf den eigenen Standort
