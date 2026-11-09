@@ -291,6 +291,7 @@ fun RadarMap(
                     val srcId = (st.getLayer("place_city") as? SymbolLayer)?.sourceId ?: "openmaptiles"
                     val vs = st.getSourceAs<org.maplibre.android.style.sources.VectorSource>(srcId) ?: return@runCatching
                     val zoom = m.cameraPosition.zoom
+                    if (zoom < 7.0 && de.schee.wetter.data.Places.index.value != null) { reportCities(emptyList(), current()); return@runCatching }
                     val classes = listOfNotNull("city", "town".takeIf { zoom >= 5.0 }, "village".takeIf { zoom >= 7.5 })
                     val w = view.width.toFloat(); val h = view.height.toFloat()
                     val found = vs.querySourceFeatures(arrayOf("place"), null).mapNotNull { f ->
@@ -310,7 +311,9 @@ fun RadarMap(
                 }
             }
             m.addOnCameraIdleListener { send(); cities() }
-            view.addOnDidBecomeIdleListener { cities() }
+            // nach dem Nachladen von Kacheln höchstens alle 1,5 s erneut (vorher bei jeder Kachel → Ruckeln)
+            var lastCities = 0L
+            view.addOnDidBecomeIdleListener { val now = System.currentTimeMillis(); if (now - lastCities > 1500) { lastCities = now; cities() } }
             m.setStyle(if (json != null) Style.Builder().fromJson(json) else Style.Builder().fromUri(STYLE)) { s ->
                 AppLog.data("Karte geladen (${System.currentTimeMillis() - started} ms)")
                 val labels = s.layers.firstOrNull { it is SymbolLayer }?.id

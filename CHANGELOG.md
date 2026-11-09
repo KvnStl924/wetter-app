@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.7 – Radar wieder flüssig
+- Die Auswahl der Orte läuft im Hintergrund statt im Haupt-Thread – kein Ruckeln mehr, wenn die Karte nach dem Wischen stehen bleibt
+- Kartendaten werden seltener und nur bei nahem Zoom nach Dörfern abgefragt; der Standort-Takt löst keine Neuberechnung mehr aus
+
 ## 0.6.6 – Orte überall, jede Stadt mit Wert
 - Eingebaute Ortsliste der Welt (GeoNames, Orte ab 1000 Einwohnern, deutsche Namen): der freie Platz wird immer gefüllt – weit draußen Großstädte, beim Hineinzoomen früh Kleinstädte und Dörfer
 - Die Ortsnamen der Karte selbst sind aus: jede gezeigte Stadt hat einen Wert – bei Wind km/h, sonst die Temperatur (auch bei Regen, Wolken, Blitzen)

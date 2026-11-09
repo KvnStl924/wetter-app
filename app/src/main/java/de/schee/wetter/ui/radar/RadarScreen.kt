@@ -241,7 +241,7 @@ fun RadarScreen(
     val labelArea = idle ?: transform
     // Jede Stadt mit Wert (Kevin am 09.11.2026): bei Wind km/h, sonst die Temperatur – auch bei Regen, Wolken, Blitzen
     val labelWw = if (fieldKind != null) ww else ui.worldNow
-    val labels = if (preview == null && labelArea != null) rememberLabels(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null) else emptyList()
+    val labels = if (preview == null) rememberLabelsAsync(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null) else emptyList()
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF282B30))) {
         if (preview != null) {
@@ -559,10 +559,48 @@ internal fun rememberLabels(
     /** Hotspots (auffällige Stellen ohne Ort) nur bei Temperatur und Wind. */
     hotspots: Boolean = true,
 ): List<MapLabel> {
+    // Testbilder: sofort (synchron) berechnen
     val density = LocalDensity.current.density
-    data class L(val lat: Double, val lon: Double, val name: String?, val kind: Int)
-    val chosen = remember(idle, cities, ww != null, temp, place, hotspots, Places.index.collectAsState().value) {
-        val out = mutableListOf<L>()
+    val idx = Places.index.collectAsState().value
+    val picks = remember(idle, cities, ww != null, temp, place, hotspots, idx) { pickLabels(idle, cities, ww, temp, place, fix, mini, hotspots, density, idx) }
+    return remember(picks, ww, temp, place) { labelValues(picks, ww, temp, units, place) }
+}
+
+/**
+ * Auf dem Handy: dieselbe Auswahl im Hintergrund (Dispatchers.Default) – die Karte ruckelt beim Stillstand nicht mehr
+ * (bis 0.6.6 lief die Suche in 139 000 Orten im Haupt-Thread). Der Standort-Takt löst keine Neuberechnung aus.
+ */
+@Composable
+internal fun rememberLabelsAsync(
+    idle: MapTransform?, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
+    units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false, hotspots: Boolean = true,
+): List<MapLabel> {
+    val density = LocalDensity.current.density
+    val idx = Places.index.collectAsState().value
+    val fixNow by androidx.compose.runtime.rememberUpdatedState(fix)
+    var picks by remember { mutableStateOf<List<LabelPick>>(emptyList()) }
+    var labels by remember { mutableStateOf<List<MapLabel>>(emptyList()) }
+    LaunchedEffect(idle, cities, ww != null, temp, place, hotspots, idx) {
+        val area = idle ?: return@LaunchedEffect
+        delay(60) // mehrere Änderungen kurz hintereinander zusammenfassen
+        picks = withContext(Dispatchers.Default) { pickLabels(area, cities, ww, temp, place, fixNow, mini, hotspots, density, idx) }
+    }
+    LaunchedEffect(picks, ww, temp, place) {
+        labels = withContext(Dispatchers.Default) { labelValues(picks, ww, temp, units, place) }
+    }
+    return labels
+}
+
+/** Gewählte Stelle für eine Beschriftung. kind wie bei [MapLabel]. */
+internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int)
+
+internal fun pickLabels(
+    idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean, place: RadarPlace?, fix: LocationSource.Fix?,
+    mini: Boolean, hotspots: Boolean, density: Float, idx: Places.Index?,
+): List<LabelPick> {
+    val L = ::LabelPick
+    run {
+        val out = mutableListOf<LabelPick>()
         // Platz jeder Beschriftung als Rechteck (Name oben, Pille unten) – nichts darf sich überlappen
         val boxes = ArrayList<FloatArray>()
         val gap = 4 * density
@@ -578,7 +616,7 @@ internal fun rememberLabels(
                 else -> floatArrayOf(x - w / 2, y - 20 * density, x + w / 2, y + 21 * density)
             }
         }
-        fun add(l: L): Boolean {
+        fun add(l: LabelPick): Boolean {
             val x = idle.x(l.lon); val y = idle.y(l.lat)
             if (!idle.visible(x, y)) return false
             val b = box(x, y, l.name, l.kind)
@@ -593,7 +631,6 @@ internal fun rememberLabels(
         fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
         val ownName = place?.name?.substringBefore(" · ")
         // Orte nach Größe (GeoNames): füllt den freien Platz von groß nach klein – so dicht, wie es passt
-        val idx = Places.index.value
         if (idx != null) {
             for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = if (mini) 400 else 4000)) {
                 val n = idx.name(i); if (n == ownName) continue
@@ -639,12 +676,15 @@ internal fun rememberLabels(
                 add(L(idle.lat(h.j * stepPx), idle.lon(h.i * stepPx), null, 0))
             }
         }
-        out
+        return out
     }
-    // Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt)
-    return remember(chosen, ww, temp, place) {
+}
+
+/** Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt). */
+internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolean, units: de.schee.wetter.data.Units, place: RadarPlace?): List<MapLabel> {
+    run {
         val o = DoubleArray(2)
-        chosen.mapNotNull { l ->
+        return picks.mapNotNull { l ->
             var color: Int? = null
             val value: String? = when {
                 ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { color = tempColorMap(it); "${units.tNum(it)}°" }
@@ -935,7 +975,7 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
         field = if (wind && ww != null) withContext(Dispatchers.Default) { worldFieldBitmap(ww, temp = false, size = 768) } else null
     }
     val labelArea = idle ?: transform
-    val labels = if (labelArea != null) rememberLabels(labelArea, cities, ww, !wind, units, place, null, mini = true, hotspots = false) else emptyList()
+    val labels = rememberLabelsAsync(labelArea, cities, ww, !wind, units, place, null, mini = true, hotspots = false)
     Box(modifier) {
         RadarMap(place, if (!wind) shown else null, if (!wind) ui.rainViewer else emptyList(), rvIndex,
             null, field, null, mini = true, onCities = { c, t -> cities = c; idle = t }, labels = labels) { transform = it }
