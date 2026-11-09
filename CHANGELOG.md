@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.3.3 – Regenradar-Kachel repariert
+- Die Regenradar-Kachel war auf dem Handy zu niedrig: Titel und Beschreibung fehlten, die Karte war unten abgeschnitten
+
 ## 0.3.2 – Drive-Ordner abgesichert
 - Wird in der Ordnerauswahl versehentlich „03 Logs - Fehlerberichte“ statt „Wetter-App“ gewählt, legt die App keinen zweiten 03-Ordner mehr darin an
 - Die APK wird nur noch in „Wetter-App › 02 APK“ abgelegt; bei falschem Ordner zeigen die Einstellungen einen Hinweis

@@ -100,7 +100,10 @@ fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean)
     val visible = order.filter { it !in hidden }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TileLayout.rows(visible).forEach { row ->
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Gleiche Höhe nur für zwei halbe Kacheln nebeneinander. Bei ganzen Kacheln mit Karte (aspectRatio)
+            // lieferte IntrinsicSize.Min auf dem Handy eine zu kleine Höhe → Regenradar ohne Titel, unten abgeschnitten.
+            val rowMod = if (row.size == 2) Modifier.fillMaxWidth().height(IntrinsicSize.Min) else Modifier.fillMaxWidth()
+            Row(rowMod, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { id ->
                     val m = if (row.size == 2) Modifier.weight(1f).fillMaxHeight() else Modifier.fillMaxWidth()
                     TileFrame(when (id) { TileId.MOON -> moonTitle(d); TileId.SUN -> sunTitle(d); TileId.AVERAGE -> "Durchschnitt"; else -> id.title }, m,
