@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.5.1 – Einstellungen aufgeräumt
+- Knopf „Fertig“ oben entfernt – zurück geht es mit der Zurück-Geste
+- „Hintergrund-Vorschau“ (Tag, Nacht, Nebel …) entfernt
+- „Drive & Logging“ erscheint nur noch, wenn kein Drive-Ordner verbunden ist (Logging läuft weiter wie bisher)
+
 ## 0.5.0 – Orte
 - Mehrere Orte: „Mein Standort“ ist immer die erste Seite, dahinter die gespeicherten Orte – auf der Hauptseite zwischen den Orten wischen
 - Seitenpunkte unten in der Mitte (➤ = Mein Standort, heller Punkt = aktueller Ort); Tippen öffnet die Ortsliste

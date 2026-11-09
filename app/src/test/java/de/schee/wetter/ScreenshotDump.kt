@@ -88,6 +88,15 @@ class ScreenshotDump {
         save(activity.window.decorView, File(target, "places.png").also { it.parentFile?.mkdirs() })
     }
 
+    @Test fun settings() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.SettingsScreen(onBack = {}) } } }
+        settle()
+        save(activity.window.decorView, File(target, "settings.png").also { it.parentFile?.mkdirs() })
+    }
+
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)

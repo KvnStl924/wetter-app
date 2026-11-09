@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                     label = "screen",
                 ) { s ->
                     when (s) {
-                        "settings" -> SettingsScreen(onBack = { AppLog.tap("Einstellungen → Fertig"); screen = "main" })
+                        "settings" -> SettingsScreen(onBack = { screen = "main" })
                         "places" -> de.schee.wetter.ui.PlacesScreen(onClose = { screen = "main" })
                         "radar", "wind" -> {
                             val w = weather.forecast
