@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.awaitClose
 import java.util.Locale
 
 /** Standort nur auf Anfrage bei geöffneter App – kein Dauer-Abo, kein Hintergrund. */
@@ -41,6 +42,30 @@ object LocationSource {
         val name = placeName(context, loc.latitude, loc.longitude)
         AppLog.i(AppLog.Cat.ORT, "Standort ermittelt: $name (Genauigkeit ${loc.accuracy.toInt()} m, ${System.currentTimeMillis() - started} ms)")
         return Place(name, loc.latitude, loc.longitude, fromGps = true)
+    }
+
+    /** Live-Position für den blauen Punkt im Vollbild-Radar. */
+    data class Fix(val lat: Double, val lon: Double, val accuracyM: Float)
+
+    /**
+     * Laufende Standort-Updates (alle 2–5 s), nur solange der Aufrufer sammelt –
+     * das Radar sammelt nur bei sichtbarem Bildschirm. Ohne Berechtigung: leerer Fluss.
+     */
+    @SuppressLint("MissingPermission")
+    fun updates(context: Context): kotlinx.coroutines.flow.Flow<Fix> = kotlinx.coroutines.flow.callbackFlow {
+        if (!hasPermission(context)) { close(); return@callbackFlow }
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val request = com.google.android.gms.location.LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000)
+            .setMinUpdateIntervalMillis(2000).build()
+        val cb = object : com.google.android.gms.location.LocationCallback() {
+            override fun onLocationResult(r: com.google.android.gms.location.LocationResult) {
+                r.lastLocation?.let { trySend(Fix(it.latitude, it.longitude, it.accuracy)) }
+            }
+        }
+        runCatching { client.lastLocation.await() }.getOrNull()?.let { trySend(Fix(it.latitude, it.longitude, it.accuracy)) }
+        client.requestLocationUpdates(request, cb, android.os.Looper.getMainLooper())
+        AppLog.i(AppLog.Cat.ORT, "Live-Standort im Radar gestartet")
+        awaitClose { client.removeLocationUpdates(cb); AppLog.i(AppLog.Cat.ORT, "Live-Standort im Radar beendet") }
     }
 
     @Suppress("DEPRECATION")

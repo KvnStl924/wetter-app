@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.2 – Live-Standort im Radar
+- Blauer Punkt zeigt den eigenen Standort live auf der Karte (mit Genauigkeitskreis, sanft pulsierend)
+- Neuer Knopf oben (Pfeil) schwenkt die Karte auf den eigenen Standort
+- Der Standort wird nur abgefragt, solange das Radar offen ist
+
 ## 0.4.1 – Karte heller, Radar weicher
 - Karte im Vollbild-Radar etwas heller (Hintergrund, Straßen, Grenzen, Schrift) – bleibt dunkel, ist aber besser lesbar
 - Ortsnamen auf Deutsch (München statt MUNICH)

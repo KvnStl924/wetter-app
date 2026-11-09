@@ -54,6 +54,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.schee.wetter.data.RadarData
+import de.schee.wetter.data.LocationSource
+import androidx.compose.animation.core.animateFloat
 import de.schee.wetter.data.WindGrid
 import de.schee.wetter.log.AppLog
 import de.schee.wetter.ui.sky.LocalAnimate
@@ -106,6 +108,7 @@ fun RadarScreen(
     onClose: () -> Unit,
     vm: RadarViewModel = viewModel(),
     preview: Bitmap? = null,
+    previewFix: LocationSource.Fix? = null,
 ) {
     val ui by vm.ui.collectAsState()
     var layer by remember { mutableStateOf(initialLayer) }
@@ -115,8 +118,18 @@ fun RadarScreen(
     var transform by remember { mutableStateOf<MapTransform?>(null) }
     var shown by remember { mutableStateOf<Bitmap?>(null) }
     var menu by remember { mutableStateOf(false) }
-
+    var fix by remember { mutableStateOf(previewFix) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var centerTick by remember { mutableIntStateOf(0) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Blauer Punkt: Live-Standort, nur solange das Radar sichtbar ist (kein Hintergrund).
+    LaunchedEffect(Unit) {
+        if (preview != null) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            LocationSource.updates(context).collect { fix = it }
+        }
+    }
     // Laden nur bei sichtbarem Bildschirm; beim Schließen oder Verlassen der App wird abgebrochen.
     LaunchedEffect(Unit) {
         if (preview != null) return@LaunchedEffect
@@ -166,11 +179,14 @@ fun RadarScreen(
             val overlay = if (layer == RadarLayer.RAIN && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind) } else null
             PreviewMap(preview, overlay, if (layer == RadarLayer.WIND) ui.wind else null, windHour, transform!!)
         } else {
-            RadarMap(place, if (layer == RadarLayer.RAIN) shown else null, if (layer == RadarLayer.WIND) ui.wind else null, windHour) { transform = it }
+            RadarMap(place, if (layer == RadarLayer.RAIN) shown else null, if (layer == RadarLayer.WIND) ui.wind else null, windHour,
+                center = fix?.let { it.lat to it.lon }, centerTick = centerTick) { transform = it }
         }
         val t = transform
         if (layer == RadarLayer.WIND && t != null) ui.wind?.let { WindParticles(it, windHour, t) }
-        if (place != null && t != null) PlaceMarker(place, t, if (layer == RadarLayer.WIND) ui.wind?.let { windLabel(it, windHour, place) } else null)
+        val f = fix
+        if (f != null && t != null) MyLocationDot(f, t)
+        if (place != null && t != null) PlaceMarker(place, t, if (layer == RadarLayer.WIND) ui.wind?.let { windLabel(it, windHour, place) } else null, f)
 
         // Oben: Schließen, Titel, Ebenen
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -178,6 +194,10 @@ fun RadarScreen(
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(layer.label, style = WType.small)
                 if (place != null) Text(place.name, style = WType.bodyDim)
+            }
+            if (fix != null) {
+                RoundButton({ AppLog.tap("Vollbild-Radar → Auf meinen Standort zentrieren"); centerTick++ }) { LocateGlyph() }
+                Spacer(Modifier.width(8.dp))
             }
             RoundButton({ AppLog.tap("Vollbild-Radar → Ebenen-Menü"); menu = !menu }) { LayersGlyph() }
         }
@@ -247,16 +267,42 @@ private fun PreviewMap(base: Bitmap, overlay: Bitmap?, wind: WindGrid?, windHour
 // ------------------------------------------------------------------ Ort
 
 @Composable
-private fun PlaceMarker(place: RadarPlace, t: MapTransform, windText: String?) {
+private fun PlaceMarker(place: RadarPlace, t: MapTransform, windText: String?, fix: LocationSource.Fix?) {
     val d = LocalDensity.current
-    val x = t.x(place.lon); val y = t.y(place.lat)
+    val x = t.x(place.lon); var y = t.y(place.lat)
     if (x < 0 || y < 0 || x > t.w || y > t.h) return
     val size = with(d) { 40.dp.toPx() }
+    // Liegt der blaue Punkt darunter, rückt die Temperatur nach oben, damit beide sichtbar bleiben.
+    if (fix != null && hypot((t.x(fix.lon) - x).toDouble(), (t.y(fix.lat) - y).toDouble()) < size) y = t.y(fix.lat) - size * 0.95f
     Box(
         Modifier.offset { IntOffset((x - size / 2).toInt(), (y - size / 2).toInt()) }.size(40.dp)
             .clip(CircleShape).background(Color(0xF21C2233)),
         contentAlignment = Alignment.Center,
     ) { Text(windText ?: place.tempLabel, style = WType.small.copy(fontWeight = FontWeight.SemiBold)) }
+}
+
+/** Blauer Punkt wie in Karten-Apps: weißer Rand, heller Kreis für die Ungenauigkeit, sanftes Pulsieren. */
+@Composable
+private fun MyLocationDot(fix: LocationSource.Fix, t: MapTransform) {
+    val x = t.x(fix.lon); val y = t.y(fix.lat)
+    if (x < -50 || y < -50 || x > t.w + 50 || y > t.h + 50) return
+    val animate = LocalAnimate.current
+    val pulse = if (animate) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "puls").animateFloat(
+            0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800)), label = "puls",
+        ).value
+    } else 0.4f
+    // Meter → Bildschirmpunkte (Breitengrad-Korrektur der Länge)
+    val pxPerM = t.w / ((t.east - t.west) * 111_320.0 * kotlin.math.cos(Math.toRadians(fix.lat)))
+    val acc = (fix.accuracyM * pxPerM).toFloat()
+    Canvas(Modifier.fillMaxSize()) {
+        val c = Offset(x, y)
+        val blue = Color(0xFF0A84FF)
+        if (acc > 12.dp.toPx()) drawCircle(blue.copy(alpha = .16f), acc.coerceAtMost(size.maxDimension), c)
+        drawCircle(blue.copy(alpha = .35f * (1 - pulse)), 8.dp.toPx() + 14.dp.toPx() * pulse, c)
+        drawCircle(Color.White, 9.dp.toPx(), c)
+        drawCircle(blue, 6.5.dp.toPx(), c)
+    }
 }
 
 private fun windLabel(g: WindGrid, hour: Int, p: RadarPlace): String {
@@ -489,6 +535,14 @@ private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Com
     val w = size.width * .3f
     drawRect(Color.White, Offset(size.width * .1f, 0f), androidx.compose.ui.geometry.Size(w, size.height))
     drawRect(Color.White, Offset(size.width * .6f, 0f), androidx.compose.ui.geometry.Size(w, size.height))
+}
+
+/** Pfeil wie „Mein Standort“ in Karten-Apps. */
+@Composable private fun LocateGlyph() = Canvas(Modifier.size(18.dp)) {
+    val p = androidx.compose.ui.graphics.Path().apply {
+        moveTo(size.width, 0f); lineTo(size.width * .55f, size.height); lineTo(size.width * .45f, size.height * .55f); lineTo(0f, size.height * .45f); close()
+    }
+    drawPath(p, Color.White)
 }
 
 @Composable private fun LayersGlyph() = Canvas(Modifier.size(20.dp)) {

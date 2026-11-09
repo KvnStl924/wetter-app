@@ -43,7 +43,12 @@ private fun quad(west: Double, east: Double, south: Double, north: Double) =
  * Die Karte lebt nur, solange der Bildschirm offen ist (Lebenszyklus wird weitergereicht).
  */
 @Composable
-fun RadarMap(place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int, onTransform: (MapTransform) -> Unit) {
+fun RadarMap(
+    place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
+    /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
+    center: Pair<Double, Double>? = null, centerTick: Int = 0,
+    onTransform: (MapTransform) -> Unit,
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -122,6 +127,12 @@ fun RadarMap(place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
     }
     LaunchedEffect(style, wind, windHour) {
         (style?.getSource("wind") as? ImageSource)?.setImage(wind?.let { windBitmap(it, windHour.coerceIn(0, it.hours.size - 1)) } ?: empty)
+    }
+
+    LaunchedEffect(centerTick) {
+        if (centerTick == 0) return@LaunchedEffect
+        val c = center ?: return@LaunchedEffect
+        map?.animateCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(LatLng(c.first, c.second), maxOf(map?.cameraPosition?.zoom ?: 8.0, 8.5)), 600)
     }
 
     AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())

@@ -87,7 +87,7 @@ class ScreenshotDump {
             wind = de.schee.wetter.data.WindGrid.parse(res("windgrid.json"))))
         val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
-        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base) } } }
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f)) } } }
         settle(); Thread.sleep(500); settle()
         save(activity.window.decorView, File(target, name).also { it.parentFile?.mkdirs() })
     }
