@@ -130,14 +130,13 @@ fun RadarScreen(
             LocationSource.updates(context).collect { fix = it }
         }
     }
-    // Laden nur bei sichtbarem Bildschirm; beim Schließen oder Verlassen der App wird abgebrochen.
+    // Die Bilder werden schon beim Öffnen der App vorgeladen (MainActivity); hier nur nachladen, falls
+    // inzwischen älter als 5 Minuten. Abbruch beim Verlassen der App übernimmt ebenfalls MainActivity.
     LaunchedEffect(Unit) {
         if (preview != null) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             vm.load()
-            try {
-                androidx.compose.runtime.snapshotFlow { layer }.collect { if (it == RadarLayer.WIND) vm.loadWind() }
-            } finally { vm.stop() }
+            androidx.compose.runtime.snapshotFlow { layer }.collect { if (it == RadarLayer.WIND) vm.loadWind() }
         }
     }
     LaunchedEffect(ui.frames.size) { if (index < 0 && ui.frames.isNotEmpty()) index = ui.nowIndex }

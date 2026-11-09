@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.6 – Radar vorgeladen
+- Radarbilder und Winddaten werden schon beim Öffnen der App geladen; das Vollbild-Radar ist dadurch sofort bereit
+- Wie bisher nur bei geöffneter App: Beim Verlassen wird das Laden abgebrochen
+
 ## 0.4.5 – Absturz beim Herauszoomen behoben, weniger Abrufe
 - Absturz behoben: Beim sehr weiten Herauszoomen im Radar stürzte die App ab
 - Open-Meteo zählt jeden Gitterpunkt als Abruf; die Windgitter sind jetzt kleiner (154 bzw. 100 Punkte), Nachladen höchstens alle 5 Sekunden, bei „zu viele Abrufe“ eine Minute Pause – sonst konnte sogar die normale Vorhersage kurz ausfallen

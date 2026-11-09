@@ -24,6 +24,7 @@ import de.schee.wetter.ui.radar.RadarScreen
 import de.schee.wetter.data.Units
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.repeatOnLifecycle
 import de.schee.wetter.ui.SettingsScreen
 import de.schee.wetter.ui.theme.WetterTheme
 
@@ -38,6 +39,16 @@ class MainActivity : ComponentActivity() {
             WetterTheme {
                 var screen by rememberSaveable { mutableStateOf("main") }
                 val weather by viewModel<WeatherViewModel>().ui.collectAsState()
+                // Radar und Wind schon beim Öffnen der App vorladen, damit das Vollbild-Radar sofort bereit ist.
+                // Nur solange die App sichtbar ist – beim Verlassen wird abgebrochen (keine Hintergrundarbeit).
+                val radarVm = viewModel<de.schee.wetter.ui.radar.RadarViewModel>()
+                val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                        radarVm.load(); radarVm.loadWind()
+                        try { kotlinx.coroutines.awaitCancellation() } finally { radarVm.stop() }
+                    }
+                }
                 BackHandler(enabled = screen != "main") {
                     AppLog.tap("Zurück-Geste → Hauptbildschirm")
                     screen = "main"
