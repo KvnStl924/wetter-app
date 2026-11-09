@@ -132,6 +132,7 @@ class ScreenshotDump {
         val now = frames.indexOfFirst { it.minutes == 0 }
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val vm = de.schee.wetter.ui.radar.RadarViewModel(activity.application)
+        de.schee.wetter.data.Places.load(activity)
         val start = java.time.Instant.parse("2026-11-09T18:00:00Z")
         val ww = de.schee.wetter.data.WorldWeather(start, de.schee.wetter.data.WorldGrid.fromGeoTiff(bytes("world_t2m.tif")), de.schee.wetter.data.WorldGrid.fromGeoTiff(bytes("world_uv10m.tif")))
         fun gray(n: String): IntArray { val b = bytes(n); val bmp = android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size); val s = android.graphics.Bitmap.createScaledBitmap(bmp, 1800, 1800, true); val p = IntArray(1800 * 1800); s.getPixels(p, 0, 1800, 0, 0, 1800, 1800); return IntArray(p.size) { (p[it] shr 8) and 0xFF } }

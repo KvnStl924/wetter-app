@@ -16,7 +16,7 @@ object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/dark"
 
     fun load(context: Context): String? {
-        val cache = File(context.cacheDir, "map_style_dark_v3.json")
+        val cache = File(context.cacheDir, "map_style_dark_v4.json")
         if (cache.exists() && System.currentTimeMillis() - cache.lastModified() < 24 * 3600_000L) {
             return runCatching { cache.readText() }.getOrNull()
         }
@@ -58,6 +58,11 @@ object MapStyle {
                 "boundary_country_z0-4", "boundary_country_z5-" -> paint.put("line-color", "rgb(150,156,166)")
             }
             if (id.startsWith("place_")) l.optJSONObject("layout")?.put("text-field", name)
+            // Ländernamen in derselben Schrift wie die Werte der App, dezent (keine zweite Schriftart)
+            if (id.startsWith("place_country")) {
+                l.optJSONObject("layout")?.put("text-font", org.json.JSONArray("[\"Noto Sans Bold\"]"))
+                paint.put("text-color", "rgba(214,218,224,0.55)"); paint.put("text-halo-color", "rgba(0,0,0,0.6)")
+            }
             kept.put(l)
         }
         style.put("layers", kept)

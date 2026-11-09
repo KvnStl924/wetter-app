@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.6 – Orte überall, jede Stadt mit Wert
+- Eingebaute Ortsliste der Welt (GeoNames, Orte ab 1000 Einwohnern, deutsche Namen): der freie Platz wird immer gefüllt – weit draußen Großstädte, beim Hineinzoomen früh Kleinstädte und Dörfer
+- Die Ortsnamen der Karte selbst sind aus: jede gezeigte Stadt hat einen Wert – bei Wind km/h, sonst die Temperatur (auch bei Regen, Wolken, Blitzen)
+- Ländernamen in derselben Schrift, dezent, und sie weichen den Werten aus
+- Beschriftungen dürfen sich nicht mehr überlappen (es zählt die echte Größe von Name und Wert)
+
 ## 0.6.5 – Eigener Ort lesbar, mehr Orte
 - Eigener Ort: Name über und Wert unter dem blauen Standortpunkt – vorher verdeckte der Punkt den Wert
 - Beim Hineinzoomen kommen Kleinstädte und Dörfer dazu (der Filter hatte sie aussortiert)

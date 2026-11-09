@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.schee.wetter.data.LocationSource
+import de.schee.wetter.data.Places
 import de.schee.wetter.data.RadarData
 import de.schee.wetter.data.Satellite
 import de.schee.wetter.data.WindGrid
@@ -238,7 +239,9 @@ fun RadarScreen(
 
     // Werte und Namen: Auswahl nach dem Verschieben/Zoomen, gezeichnet in der Karte (gehen beim Wischen exakt mit)
     val labelArea = idle ?: transform
-    val labels = if (preview == null && labelArea != null) rememberLabels(labelArea, cities, if (fieldKind != null) ww else null, fieldKind == RadarLayer.TEMP, units, place, fix) else emptyList()
+    // Jede Stadt mit Wert (Kevin am 09.11.2026): bei Wind km/h, sonst die Temperatur – auch bei Regen, Wolken, Blitzen
+    val labelWw = if (fieldKind != null) ww else ui.worldNow
+    val labels = if (preview == null && labelArea != null) rememberLabels(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null) else emptyList()
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF282B30))) {
         if (preview != null) {
@@ -260,7 +263,7 @@ fun RadarScreen(
         if (preview != null && lightning && t != null) LightningDots(ui.strikes, ui.strikesNewest, t)
         val f = fix
         if (f != null && t != null) MyLocationDot(f, t)
-        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, if (fieldKind != null) ww else null, fieldKind == RadarLayer.TEMP, units, place, fix))
+        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null))
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
         Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -553,29 +556,60 @@ data class MapCity(val name: String, val lat: Double, val lon: Double, val rank:
 internal fun rememberLabels(
     idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
     units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false,
+    /** Hotspots (auffällige Stellen ohne Ort) nur bei Temperatur und Wind. */
+    hotspots: Boolean = true,
 ): List<MapLabel> {
     val density = LocalDensity.current.density
     data class L(val lat: Double, val lon: Double, val name: String?, val kind: Int)
-    val chosen = remember(idle, cities, ww != null, temp, place) {
+    val chosen = remember(idle, cities, ww != null, temp, place, hotspots, Places.index.collectAsState().value) {
         val out = mutableListOf<L>()
-        val pts = mutableListOf<Pair<Float, Float>>()
-        fun free(x: Float, y: Float, dist: Float) = pts.none { (ax, ay) -> hypot((ax - x).toDouble(), (ay - y).toDouble()) < dist * density } &&
-            (x > 34 * density && x < idle.w - 34 * density) && (mini || (y > 90 * density && y < idle.h - 220 * density && !(x > idle.w - 76 * density && y > idle.h - 560 * density)))
-        fun add(l: L, dist: Float): Boolean {
-            val x = idle.x(l.lon); val y = idle.y(l.lat)
-            if (!idle.visible(x, y) || !free(x, y, dist)) return false
-            out += l; pts += x to y; return true
+        // Platz jeder Beschriftung als Rechteck (Name oben, Pille unten) – nichts darf sich überlappen
+        val boxes = ArrayList<FloatArray>()
+        val gap = 4 * density
+        fun overlaps(b: FloatArray) = boxes.any { o -> b[0] < o[2] + gap && b[2] > o[0] - gap && b[1] < o[3] + gap && b[3] > o[1] - gap }
+        fun inUi(b: FloatArray) = !mini && (b[1] < 84 * density || b[3] > idle.h - 214 * density || (b[2] > idle.w - 74 * density && b[3] > idle.h - 560 * density))
+        // Breite schätzen: Name (≈ 7 dp je Zeichen in 12,5 sp fett) bzw. Pille (≈ 46 dp)
+        fun box(x: Float, y: Float, name: String?, kind: Int): FloatArray {
+            val nameW = (name?.length ?: 0) * 6.8f * density + 4 * density
+            val w = maxOf(nameW, (if (temp) 34f else 58f) * density)
+            return when (kind) {
+                0 -> floatArrayOf(x - w / 2, y - 10 * density, x + w / 2, y + 10 * density)
+                2 -> floatArrayOf(x - w / 2, y - 29 * density, x + w / 2, y + 29 * density)
+                else -> floatArrayOf(x - w / 2, y - 20 * density, x + w / 2, y + 21 * density)
+            }
         }
-        // eigener Ort: Name über, Wert unter dem blauen Punkt → braucht oben und unten Platz
-        place?.let { p -> val x = idle.x(p.lon); val y = idle.y(p.lat); if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); pts += x to y; pts += x to (y + 26 * density); pts += x to (y - 20 * density) } }
-        fix?.let { pts += idle.x(it.lon) to idle.y(it.lat) }
-        val minDist = if (mini) 50f else 56f
-        for (c in cities.filter { it.fromMap }.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 1), minDist)
-        // Weltliste: nur, wo die Karte selbst keinen Ort beschriftet
-        val mapNames = cities.map { it.name }.toSet()
-        for (c in WorldCities.ALL.sortedBy { it.rank }) if (c.name !in mapNames) add(L(c.lat, c.lon, c.name, 3), minDist + 6)
-        // Hotspots: auffällige Stellen im freien Raum
-        if (ww != null && !mini) {
+        fun add(l: L): Boolean {
+            val x = idle.x(l.lon); val y = idle.y(l.lat)
+            if (!idle.visible(x, y)) return false
+            val b = box(x, y, l.name, l.kind)
+            if (b[0] < 4 * density || b[2] > idle.w - 4 * density || inUi(b) || overlaps(b)) return false
+            out += l; boxes += b; return true
+        }
+        // eigener Ort zuerst (Name über, Wert unter dem blauen Punkt)
+        place?.let { p ->
+            val x = idle.x(p.lon); val y = idle.y(p.lat)
+            if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); boxes += box(x, y, p.name.substringBefore(" · "), 2) }
+        }
+        fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
+        val ownName = place?.name?.substringBefore(" · ")
+        // Orte nach Größe (GeoNames): füllt den freien Platz von groß nach klein – so dicht, wie es passt
+        val idx = Places.index.value
+        if (idx != null) {
+            for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = if (mini) 400 else 4000)) {
+                val n = idx.name(i); if (n == ownName) continue
+                add(L(idx.lat[i].toDouble(), idx.lon[i].toDouble(), n, 3))
+                if (out.size > 70) break
+            }
+        }
+        // dazu Orte aus den Kartendaten (beim Hineinzoomen auch Dörfer unter 1000 Einwohnern)
+        val taken = out.mapNotNull { it.name }.toHashSet()
+        if (idx != null) for (c in cities.sortedBy { it.rank }) if (c.name != ownName && c.name !in taken) add(L(c.lat, c.lon, c.name, 3))
+        if (idx == null) {
+            // Ortsliste noch nicht geladen: Großstädte der eingebauten Weltliste
+            for (c in WorldCities.ALL.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 3))
+        }
+        // Hotspots: auffällige Stellen im verbleibenden freien Raum (nur bei Temperatur/Wind)
+        if (ww != null && hotspots && !mini) {
             val stepPx = 34 * density
             val nx = (idle.w / stepPx).toInt() + 1; val ny = (idle.h / stepPx).toInt() + 1
             val v = Array(ny) { DoubleArray(nx) }
@@ -602,7 +636,7 @@ internal fun rememberLabels(
                 if (!temp && max && c > 8) cand += H(i, j, c)
             }
             for (h in cand.sortedByDescending { it.score }.take(14)) {
-                add(L(idle.lat(h.j * stepPx), idle.lon(h.i * stepPx), null, 0), 72f)
+                add(L(idle.lat(h.j * stepPx), idle.lon(h.i * stepPx), null, 0))
             }
         }
         out
@@ -901,7 +935,7 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
         field = if (wind && ww != null) withContext(Dispatchers.Default) { worldFieldBitmap(ww, temp = false, size = 768) } else null
     }
     val labelArea = idle ?: transform
-    val labels = if (labelArea != null) rememberLabels(labelArea, cities, if (wind) ww else null, false, units, place, null, mini = true) else emptyList()
+    val labels = if (labelArea != null) rememberLabels(labelArea, cities, ww, !wind, units, place, null, mini = true, hotspots = false) else emptyList()
     Box(modifier) {
         RadarMap(place, if (!wind) shown else null, if (!wind) ui.rainViewer else emptyList(), rvIndex,
             null, field, null, mini = true, onCities = { c, t -> cities = c; idle = t }, labels = labels) { transform = it }

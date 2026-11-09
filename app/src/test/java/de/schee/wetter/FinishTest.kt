@@ -63,4 +63,18 @@ class FinishTest {
         assertEquals(SkyWeather.STORM, WeatherCodes.sky(95))
         for (c in listOf(0, 1, 2, 3, 45, 51, 61, 63, 65, 71, 80, 95)) assertTrue(WeatherCodes.text(c, true).isNotBlank())
     }
+
+    @Test fun placesFile() {
+        val idx = de.schee.wetter.data.Places.parse(java.io.File("src/main/assets/places.bin").readBytes())
+        assertTrue(idx.size > 100_000)
+        // größte zuerst, deutsche Namen
+        assertTrue(idx.pop[0] >= idx.pop[1000])
+        val names = (0 until idx.size).map { idx.name(it) }.toSet()
+        assertTrue("Köln" in names && "München" in names && "Mechernich" in names && "Kall" in names && "Peking" in names)
+        // Ausschnitt um Mechernich: viele Orte, auch kleine
+        val near = de.schee.wetter.data.Places.inView(idx, 50.3, 50.9, 6.3, 7.1)
+        assertTrue(near.size > 35)
+        // über die Datumsgrenze: Fidschi (178° O) im Ausschnitt 170 … 190
+        assertTrue(de.schee.wetter.data.Places.inView(idx, -20.0, -15.0, 170.0, 190.0).isNotEmpty())
+    }
 }

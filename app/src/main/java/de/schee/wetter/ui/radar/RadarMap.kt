@@ -154,13 +154,13 @@ private fun addOverlayLayers(s: Style) {
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
         // eigener Ort: Name über, Wert unter dem blauen Standortpunkt (der sonst den Wert verdeckte, 0.6.4)
         PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, -0.35f)), Expression.stop(2, Expression.literal(arrayOf(0f, -0.95f))))),
-        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(false),
     ).withFilter(Expression.all(Expression.has("name"), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
         PropertyFactory.iconImage(Expression.get("pill")),
         PropertyFactory.iconAnchor(Expression.match(kind, Expression.literal(Property.ICON_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
         PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 4f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))), Expression.stop(2, Expression.literal(arrayOf(0f, 12f))))),
-        PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+        PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(false),
     ).withFilter(withPill))
     // ohne Farbe (z. B. eigener Ort bei Regen): schlichter Wert über dem Punkt
     s.addLayer(SymbolLayer("lbl-plain", "labels").withProperties(
@@ -168,7 +168,7 @@ private fun addOverlayLayers(s: Style) {
         PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(15f),
         PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.3f),
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.3f)),
-        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(false),
     ).withFilter(Expression.all(Expression.has("value"), Expression.not(withPill))))
 }
 
@@ -291,7 +291,7 @@ fun RadarMap(
                     val srcId = (st.getLayer("place_city") as? SymbolLayer)?.sourceId ?: "openmaptiles"
                     val vs = st.getSourceAs<org.maplibre.android.style.sources.VectorSource>(srcId) ?: return@runCatching
                     val zoom = m.cameraPosition.zoom
-                    val classes = listOfNotNull("city", "town".takeIf { zoom >= 5.5 }, "village".takeIf { zoom >= 8.5 })
+                    val classes = listOfNotNull("city", "town".takeIf { zoom >= 5.0 }, "village".takeIf { zoom >= 7.5 })
                     val w = view.width.toFloat(); val h = view.height.toFloat()
                     val found = vs.querySourceFeatures(arrayOf("place"), null).mapNotNull { f ->
                         val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
@@ -391,10 +391,9 @@ fun RadarMap(
         val s = style ?: return@LaunchedEffect
         labels.forEach { l -> if (l.color != null && l.value != null) ensurePill(s, l.value, l.color, density) }
         (s.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels))
-        // Werte mit Pille zeigen den Namen selbst → graue Ortsnamen der Karte ausblenden (bleiben abfragbar)
-        val own = labels.any { it.color != null }
+        // Ortsnamen zeichnet nur die App selbst (immer mit Wert) – die der Karte bleiben aus (Kevin am 09.11.2026)
         listOf("place_city_large", "place_city", "place_town", "place_village").forEach {
-            s.getLayer(it)?.setProperties(PropertyFactory.textOpacity(if (own) 0f else 1f), PropertyFactory.iconOpacity(if (own) 0f else 0.7f))
+            s.getLayer(it)?.setProperties(PropertyFactory.visibility(Property.NONE))
         }
     }
     LaunchedEffect(style, strikes, strikesNewest) { (style?.getSource("strikes") as? GeoJsonSource)?.setGeoJson(strikeFeatures(strikes, strikesNewest)) }

@@ -229,7 +229,10 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Alles vorladen (beim Öffnen der App). */
-    fun preload() { load(); loadWorld(); loadClouds(); loadLightning() }
+    fun preload() {
+        load(); loadWorld(); loadClouds(); loadLightning()
+        if (de.schee.wetter.data.Places.index.value == null) viewModelScope.launch(Dispatchers.IO) { runCatching { de.schee.wetter.data.Places.load(getApplication()) } }
+    }
 
     /** Beim Verlassen der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
