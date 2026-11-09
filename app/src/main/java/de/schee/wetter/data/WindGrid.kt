@@ -23,6 +23,8 @@ class WindGrid(
     private val v: Array<Array<DoubleArray>>,
     /** [hour][row][col] → Niederschlag der vorangegangenen Stunde in mm (Modell, für das Radar außerhalb Deutschlands). */
     private val p: Array<Array<DoubleArray>>? = null,
+    /** [hour][row][col] → Temperatur in 2 m Höhe (°C). */
+    private val tc: Array<Array<DoubleArray>>? = null,
 ) {
     val lat1 get() = lat0 + (rows - 1) * step
     val lon1 get() = lon0 + (cols - 1) * step
@@ -57,7 +59,7 @@ class WindGrid(
                 lons.append("%.3f".format(Locale.US, lon))
             }
             return "https://api.open-meteo.com/v1/forecast?latitude=$lats&longitude=$lons" +
-                "&hourly=wind_speed_10m,wind_direction_10m,precipitation&forecast_hours=13&timezone=UTC"
+                "&hourly=wind_speed_10m,wind_direction_10m,precipitation,temperature_2m&forecast_hours=13&timezone=UTC"
         }
 
         fun load(s: Spec, label: String): WindGrid = parse(Http.text(label, url(s), timeoutMs = 20_000), s)
@@ -69,9 +71,10 @@ class WindGrid(
             val u = Array(hours.size) { Array(s.rows) { DoubleArray(s.cols) } }
             val v = Array(hours.size) { Array(s.rows) { DoubleArray(s.cols) } }
             val p = Array(hours.size) { Array(s.rows) { DoubleArray(s.cols) } }
+            val tc = Array(hours.size) { Array(s.rows) { DoubleArray(s.cols) } }
             for (i in 0 until minOf(arr.length(), s.rows * s.cols)) {
                 val h = arr.getJSONObject(i).getJSONObject("hourly")
-                val sp = h.getJSONArray("wind_speed_10m"); val dir = h.getJSONArray("wind_direction_10m"); val pr = h.optJSONArray("precipitation")
+                val sp = h.getJSONArray("wind_speed_10m"); val dir = h.getJSONArray("wind_direction_10m"); val pr = h.optJSONArray("precipitation"); val te = h.optJSONArray("temperature_2m")
                 val r = i / s.cols; val c = i % s.cols
                 for (t in hours.indices) {
                     val speed = sp.optDouble(t, 0.0).takeIf { !it.isNaN() } ?: 0.0
@@ -80,9 +83,10 @@ class WindGrid(
                     val rad = Math.toRadians(d)
                     u[t][r][c] = -speed * sin(rad); v[t][r][c] = -speed * cos(rad)
                     p[t][r][c] = pr?.optDouble(t, 0.0)?.takeIf { !it.isNaN() } ?: 0.0
+                    tc[t][r][c] = te?.optDouble(t, Double.NaN) ?: Double.NaN
                 }
             }
-            return WindGrid(s.lat0, s.lon0, s.step, s.rows, s.cols, hours, u, v, p)
+            return WindGrid(s.lat0, s.lon0, s.step, s.rows, s.cols, hours, u, v, p, tc)
         }
     }
 
@@ -97,6 +101,14 @@ class WindGrid(
     fun inside(lat: Double, lon: Double) = minOf(lat - lat0, lat1 - lat, lon - lon0, lon1 - lon)
 
     fun covers(south: Double, north: Double, west: Double, east: Double) = south >= lat0 && north <= lat1 && west >= lon0 && east <= lon1
+
+    /** Temperatur (°C) am Ort, bilinear; NaN wenn keine Daten. */
+    fun tempAt(hour: Int, lat: Double, lon: Double): Double {
+        val a = tc?.get(hour.coerceIn(0, hours.size - 1)) ?: return Double.NaN
+        val fr = ((lat - lat0) / step).coerceIn(0.0, rows - 1.0001); val fc = ((lon - lon0) / step).coerceIn(0.0, cols - 1.0001)
+        val r = floor(fr).toInt(); val c = floor(fc).toInt(); val tr = fr - r; val tcc = fc - c
+        return (a[r][c] * (1 - tcc) + a[r][c + 1] * tcc) * (1 - tr) + (a[r + 1][c] * (1 - tcc) + a[r + 1][c + 1] * tcc) * tr
+    }
 
     /** Niederschlag (mm/h) am Ort, bilinear. */
     fun precipAt(hour: Int, lat: Double, lon: Double): Double {
@@ -138,6 +150,17 @@ class WindField(val base: WindGrid, val view: WindGrid?) {
         val f = (inBase - base.step) / base.step
         base.at(hour, lat, lon, out); v.at(vh, lat, lon, tmp)
         out[0] = out[0] * f + tmp[0] * (1 - f); out[1] = out[1] * f + tmp[1] * (1 - f)
+    }
+
+    /** Temperatur: feines Gitter bevorzugt, außerhalb das Ausschnitt-Gitter, am Übergang gemischt. */
+    fun tempAt(hour: Int, lat: Double, lon: Double): Double {
+        val v = view
+        val inBase = base.inside(lat, lon)
+        if (v == null || inBase >= base.step * 2) return base.tempAt(hour, lat, lon)
+        val vt = v.tempAt(v.hourIndex(base.hours[hour.coerceIn(0, base.hours.size - 1)]), lat, lon)
+        if (inBase <= base.step) return vt
+        val f = (inBase - base.step) / base.step
+        return base.tempAt(hour, lat, lon) * f + vt * (1 - f)
     }
 
     /** Wie weit (Grad) liegt der Punkt innerhalb der Daten? Für das Ausblenden am Rand. */

@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.8 – Temperaturkarte
+- Neue Ebene „Temperatur“ im Vollbild-Radar (Ebenen-Knopf oben rechts): Farbfläche von kalt (blau) bis heiß (rot) und Werte wie „8°“ im gleichen Raster wie beim Wind, weltweit
+- Zeitleiste stündlich bis +12 Stunden, Legende −10° bis 32°
+- Die Temperaturen kommen im selben Abruf wie der Wind (keine zusätzlichen Abrufe)
+
 ## 0.4.7 – Windwerte auf der Karte
 - Windkarte zeigt die Windgeschwindigkeit als schlichten Text („12 km/h“) in einem regelmäßigen, versetzten Raster – dichter beim Hineinzoomen, weiter beim Herauszoomen; die Werte stehen fest auf der Karte und springen beim Verschieben nicht
 - Am eigenen Ort steht der Wert mit kleinem Punkt statt der Zahl im Kreis

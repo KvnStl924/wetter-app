@@ -74,6 +74,7 @@ class ScreenshotDump {
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)
+    @Test fun temp() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp.png")
 
     private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String, forecast: Boolean = false) {
         val target = System.getProperty("wetter.shots").orEmpty()
