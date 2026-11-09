@@ -159,7 +159,7 @@ fun MainScreen(
         ) {
             Column(
                 Modifier.fillMaxSize().verticalScroll(scroll).statusBarsPadding().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // Großer Kopf, blendet beim Scrollen aus
                 Column(

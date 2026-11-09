@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.3.4 – Weniger Abstand zwischen den Kacheln
+- Abstand zwischen allen Kacheln halbiert (12 → 6 dp), die Kacheln werden dadurch etwas breiter
+
 ## 0.3.3 – Regenradar-Kachel repariert
 - Die Regenradar-Kachel war auf dem Handy zu niedrig: Titel und Beschreibung fehlten, die Karte war unten abgeschnitten
 
