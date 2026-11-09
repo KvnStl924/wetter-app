@@ -153,7 +153,40 @@ object RadarData {
             val c = px[i]
             px[i] = if (c ushr 24 == 0) 0 else cache.getOrPut(c) { mapColor(c, scale) }
         }
-        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        return Bitmap.createBitmap(soften(px, w, h), w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    /**
+     * Weichzeichnen (2 × 3er-Kernel 1-2-1 in beide Richtungen), damit die 1-km-Rasterzellen des Radars
+     * nicht als harte Vierecke erscheinen. Farben werden nach Deckkraft gewichtet, damit die Ränder nicht grau werden.
+     */
+    internal fun soften(src: IntArray, w: Int, h: Int, passes: Int = 2): IntArray {
+        val n = w * h
+        var a = FloatArray(n); var r = FloatArray(n); var g = FloatArray(n); var b = FloatArray(n)
+        for (i in 0 until n) {
+            val c = src[i]; val al = (c ushr 24) / 255f
+            a[i] = al; r[i] = ((c shr 16) and 255) * al; g[i] = ((c shr 8) and 255) * al; b[i] = (c and 255) * al
+        }
+        var ta = FloatArray(n); var tr = FloatArray(n); var tg = FloatArray(n); var tb = FloatArray(n)
+        fun blur(horizontal: Boolean) {
+            for (y in 0 until h) for (x in 0 until w) {
+                val i = y * w + x
+                val p = if (horizontal) (if (x > 0) i - 1 else i) else (if (y > 0) i - w else i)
+                val q = if (horizontal) (if (x < w - 1) i + 1 else i) else (if (y < h - 1) i + w else i)
+                ta[i] = (a[p] + 2 * a[i] + a[q]) / 4; tr[i] = (r[p] + 2 * r[i] + r[q]) / 4
+                tg[i] = (g[p] + 2 * g[i] + g[q]) / 4; tb[i] = (b[p] + 2 * b[i] + b[q]) / 4
+            }
+            var s = a; a = ta; ta = s; s = r; r = tr; tr = s; s = g; g = tg; tg = s; s = b; b = tb; tb = s
+        }
+        repeat(passes) { blur(true); blur(false) }
+        val out = IntArray(n)
+        for (i in 0 until n) {
+            val al = a[i]
+            if (al < 0.03f) continue
+            out[i] = ((al * 255).toInt().coerceIn(0, 255) shl 24) or
+                ((r[i] / al).toInt().coerceIn(0, 255) shl 16) or ((g[i] / al).toInt().coerceIn(0, 255) shl 8) or (b[i] / al).toInt().coerceIn(0, 255)
+        }
+        return out
     }
 
     /** Gibt es im Bild sichtbaren Niederschlag (nach dem Umfärben)? */

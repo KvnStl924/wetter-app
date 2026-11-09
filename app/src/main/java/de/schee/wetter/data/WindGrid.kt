@@ -10,7 +10,7 @@ import kotlin.math.floor
 import kotlin.math.sin
 
 /**
- * Windfeld über Deutschland für die Windkarte: Gitter im Abstand von 0,5° (357 Punkte),
+ * Windfeld über Deutschland und Nachbarländer: Gitter im Abstand von 0,5° (567 Punkte),
  * Open-Meteo (ICON), stündlich für die nächsten 13 Stunden. Wird nur beim Öffnen der Windebene geladen.
  */
 class WindGrid(
@@ -20,8 +20,8 @@ class WindGrid(
     private val v: Array<Array<DoubleArray>>,
 ) {
     companion object {
-        const val LAT0 = 47.0; const val LAT1 = 55.0
-        const val LON0 = 5.5; const val LON1 = 15.5
+        const val LAT0 = 46.0; const val LAT1 = 56.0
+        const val LON0 = 4.0; const val LON1 = 17.0
         const val STEP = 0.5
         val ROWS = ((LAT1 - LAT0) / STEP).toInt() + 1
         val COLS = ((LON1 - LON0) / STEP).toInt() + 1

@@ -1,6 +1,13 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.1 – Karte heller, Radar weicher
+- Karte im Vollbild-Radar etwas heller (Hintergrund, Straßen, Grenzen, Schrift) – bleibt dunkel, ist aber besser lesbar
+- Ortsnamen auf Deutsch (München statt MUNICH)
+- Regenflächen weichgezeichnet statt eckiger Pixel
+- Windkarte: größeres Gebiet, Farbfläche blendet am Rand weich aus statt als Viereck zu enden
+- Windlinien bewegen sich beim Verschieben der Karte mit und füllen neue Bereiche sofort
+
 ## 0.4.0 – Radar und Karten
 - Vollbild-Radar: dunkle Karte zum Verschieben und Zoomen (OpenFreeMap, Daten © OpenStreetMap), Ort mit aktueller Temperatur
 - Zeitleiste mit Abspielen: DWD-Radar der letzten 2 Stunden, DWD-Radar-Vorhersage bis +2 Stunden (5-Minuten-Schritte), danach Modell-Niederschlag (ICON-EU) stündlich bis +12 Stunden

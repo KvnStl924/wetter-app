@@ -48,9 +48,18 @@ class RadarTest {
         assertTrue(abs(t.lat(t.y(50.59)) - 50.59) < 1e-6 && abs(t.lon(t.x(6.65)) - 6.65) < 1e-6)
     }
 
+    @Test fun mapStyleBrighterAndGerman() {
+        val src = javaClass.classLoader!!.getResource("style_dark.json")!!.readText()
+        val out = de.schee.wetter.data.MapStyle.transform(src)
+        assertTrue(!out.contains("rgb(12,12,12)") && out.contains("rgba(30,30,30,1)"))
+        assertTrue(out.contains("[\"get\",\"name:de\"],[\"get\",\"name_en\"]"))
+        org.json.JSONObject(out) // gültiges JSON
+        assertEquals(listOf(59.0, 59.0, 59.0, 1.0), de.schee.wetter.data.MapStyle.parse("hsl(0,0%,23%)")!!.map { Math.round(it).toDouble() })
+    }
+
     @Test fun windGrid() {
         val g = WindGrid.parse(javaClass.classLoader!!.getResource("windgrid.json")!!.readText())
-        assertEquals(WindGrid.ROWS * WindGrid.COLS, 357)
+        assertEquals(567, WindGrid.ROWS * WindGrid.COLS)
         assertTrue(g.hours.size >= 12)
         val out = DoubleArray(2)
         g.at(0, 50.5, 7.0, out)

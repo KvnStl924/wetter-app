@@ -76,6 +76,8 @@ fun RadarMap(place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
 
     LaunchedEffect(view) {
         val started = System.currentTimeMillis()
+        // Etwas hellerer Stil mit deutschen Ortsnamen; ohne Netz der Originalstil.
+        val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { de.schee.wetter.data.MapStyle.load(context) }
         view.getMapAsync { m ->
             map = m
             m.uiSettings.apply {
@@ -94,7 +96,7 @@ fun RadarMap(place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
             }
             m.addOnCameraMoveListener { send() }
             m.addOnCameraIdleListener { send() }
-            m.setStyle(Style.Builder().fromUri(STYLE)) { s ->
+            m.setStyle(if (json != null) Style.Builder().fromJson(json) else Style.Builder().fromUri(STYLE)) { s ->
                 AppLog.data("Karte geladen (${System.currentTimeMillis() - started} ms)")
                 val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
                 val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
@@ -105,7 +107,7 @@ fun RadarMap(place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
                 val windLayer = RasterLayer("wind-layer", "wind").withProperties(
                     PropertyFactory.rasterOpacity(0.75f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
                 val radarLayer = RasterLayer("radar-layer", "radar").withProperties(
-                    PropertyFactory.rasterOpacity(0.9f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("nearest"))
+                    PropertyFactory.rasterOpacity(0.9f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
                 if (labels != null) { s.addLayerBelow(windLayer, labels); s.addLayerBelow(radarLayer, labels) } else { s.addLayer(windLayer); s.addLayer(radarLayer) }
                 style = s
                 send()

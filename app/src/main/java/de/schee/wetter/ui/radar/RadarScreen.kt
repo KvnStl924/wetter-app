@@ -266,17 +266,29 @@ private fun windLabel(g: WindGrid, hour: Int, p: RadarPlace): String {
 
 // ------------------------------------------------------------------ Wind
 
-/** Strömungslinien: kurze Striche, die mit dem Wind wandern. Läuft nur bei sichtbarem Bildschirm. */
+/**
+ * Strömungslinien: kurze Striche, die mit dem Wind wandern. Läuft nur bei sichtbarem Bildschirm.
+ * Die Striche haben Kartenkoordinaten (Breite/Länge) und wandern beim Verschieben der Karte mit;
+ * Striche, die aus dem Bild geraten, entstehen sofort neu im sichtbaren Teil.
+ */
 @Composable
 private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
     val animate = LocalAnimate.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val n = 900
-    // Nur dort, wo es Winddaten gibt (Gitter über Deutschland), und nur im sichtbaren Teil.
-    fun area(m: MapTransform) = floatArrayOf(
-        m.x(WindGrid.LON0).coerceIn(0f, m.w), m.y(WindGrid.LAT1).coerceIn(0f, m.h), m.x(WindGrid.LON1).coerceIn(0f, m.w), m.y(WindGrid.LAT0).coerceIn(0f, m.h))
-    fun spawn(p: FloatArray, a: FloatArray) { p[0] = a[0] + Random.nextFloat() * (a[2] - a[0]); p[1] = a[1] + Random.nextFloat() * (a[3] - a[1]) }
-    val parts = remember(t.w, t.h) { val a = area(t); Array(n) { floatArrayOf(0f, 0f, Random.nextFloat()).also { spawn(it, a) } } }
+    // Bereich mit Winddaten, 1° vom Rand des Gitters entfernt (dort blendet die Farbfläche aus).
+    val latMin = WindGrid.LAT0 + 1; val latMax = WindGrid.LAT1 - 1; val lonMin = WindGrid.LON0 + 1; val lonMax = WindGrid.LON1 - 1
+    fun area(m: MapTransform) = doubleArrayOf(maxOf(m.south, latMin), minOf(m.north, latMax), maxOf(m.west, lonMin), minOf(m.east, lonMax))
+    fun spawn(p: DoubleArray, a: DoubleArray) {
+        if (a[0] >= a[1] || a[2] >= a[3]) { p[2] = 2.0; return } // nichts sichtbar
+        // gleichmäßig auf dem Bildschirm verteilt (Breite über Mercator)
+        val y0 = RadarData.mercY(a[0]); val y1 = RadarData.mercY(a[1])
+        val my = (y0 + Random.nextDouble() * (y1 - y0)) * 180.0 / 20037508.34
+        p[0] = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
+        p[1] = a[2] + Random.nextDouble() * (a[3] - a[2])
+        p[2] = 0.0
+    }
+    val parts = remember { val a = area(t); Array(n) { DoubleArray(3).also { spawn(it, a); it[2] = Random.nextDouble() } } }
     var tick by remember { mutableFloatStateOf(0f) }
     val tr by androidx.compose.runtime.rememberUpdatedState(t)
     val h by androidx.compose.runtime.rememberUpdatedState(hour.coerceIn(0, g.hours.size - 1))
@@ -288,20 +300,20 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
             val w = DoubleArray(2)
             while (isActive) {
                 androidx.compose.runtime.withFrameNanos { now ->
-                    val dt = if (last == 0L) 0f else ((now - last) / 1e9f).coerceAtMost(.05f)
+                    val dt = if (last == 0L) 0.0 else ((now - last) / 1e9).coerceAtMost(.05)
                     last = now
                     val m = tr
                     val a = area(m)
+                    val degX = (m.east - m.west) / m.w; val degY = (m.north - m.south) / m.h
                     for (p in parts) {
-                        g.at(h, m.lat(p[1]), m.lon(p[0]), w)
-                        // 1 km/h ≈ 1,2 dp pro Sekunde – gut sichtbar, unabhängig vom Zoom.
-                        p[0] += (w[0] * 1.2 * density * dt).toFloat(); p[1] -= (w[1] * 1.2 * density * dt).toFloat()
-                        p[2] += dt / 2.2f
-                        if (p[2] > 1f || p[0] < a[0] || p[1] < a[1] || p[0] > a[2] || p[1] > a[3]) {
-                            spawn(p, a); p[2] = 0f
-                        }
+                        g.at(h, p[0], p[1], w)
+                        // 1 km/h ≈ 1,2 dp pro Sekunde auf dem Bildschirm – gleich schnell bei jedem Zoom.
+                        p[1] += w[0] * 1.2 * density * dt * degX
+                        p[0] += w[1] * 1.2 * density * dt * degY
+                        p[2] += dt / 2.2
+                        if (p[2] > 1.0 || p[0] < a[0] || p[0] > a[1] || p[1] < a[2] || p[1] > a[3]) spawn(p, a)
                     }
-                    tick = now / 1e9f
+                    tick = (now / 1e9).toFloat()
                 }
             }
         }
@@ -310,13 +322,17 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
         @Suppress("UNUSED_VARIABLE") val redraw = tick
         val w = DoubleArray(2)
         for (p in parts) {
-            g.at(h, t.lat(p[1]), t.lon(p[0]), w)
+            if (p[2] > 1.0) continue
+            g.at(h, p[0], p[1], w)
             val speed = hypot(w[0], w[1])
             if (speed < 0.5) continue
+            val x = t.x(p[1]); val y = t.y(p[0])
             val len = (4.0 + speed * 0.25).coerceAtMost(18.0) * density
             val dx = (w[0] / speed * len).toFloat(); val dy = (-w[1] / speed * len).toFloat()
-            val a = (kotlin.math.sin(p[2] * PI).toFloat() * .85f).coerceAtLeast(0f)
-            drawLine(Color.White.copy(alpha = a * .75f), Offset(p[0] - dx, p[1] - dy), Offset(p[0], p[1]), strokeWidth = 1.3f * density, cap = StrokeCap.Round)
+            // am Rand der Daten weich ausblenden
+            val edge = minOf(p[0] - latMin, latMax - p[0], p[1] - lonMin, lonMax - p[1]).coerceIn(0.0, 0.75) / 0.75
+            val a = (kotlin.math.sin(p[2] * PI) * .85 * edge).toFloat().coerceAtLeast(0f)
+            drawLine(Color.White.copy(alpha = a * .75f), Offset(x - dx, y - dy), Offset(x, y), strokeWidth = 1.3f * density, cap = StrokeCap.Round)
         }
     }
 }
@@ -343,7 +359,9 @@ fun windBitmap(g: WindGrid, hour: Int): Bitmap {
     val out = DoubleArray(2)
     for (r in 0 until h) for (c in 0 until w) {
         g.at(hour, WindGrid.LAT0 + r * WindGrid.STEP, WindGrid.LON0 + c * WindGrid.STEP, out)
-        px[(h - 1 - r) * w + c] = (windColor(hypot(out[0], out[1])) and 0xFFFFFF) or (0xA0 shl 24)
+        // zum Rand des Gitters hin ausblenden, damit kein hartes Viereck entsteht
+        val edge = (minOf(r, c, h - 1 - r, w - 1 - c) / 3.0).coerceIn(0.0, 1.0)
+        px[(h - 1 - r) * w + c] = (windColor(hypot(out[0], out[1])) and 0xFFFFFF) or ((0xA0 * edge).toInt() shl 24)
     }
     return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
 }
