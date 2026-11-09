@@ -45,6 +45,20 @@ class ScreenshotDump {
         save(activity.window.decorView, File(out, "main_top.png"))
     }
 
+    @Test fun mainOffline() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis() - 3 * 3600_000L)
+        val ui = WeatherUi(place = Place("Saffig", 50.41, 7.42, true), forecast = f, error = "Keine Verbindung – gezeigt wird der letzte Stand.")
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        de.schee.wetter.data.Network.preview(false)
+        try {
+            activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = f.days[0].sunrise!!.plusHours(5)) } } }
+            settle()
+            save(activity.window.decorView, File(target, "main_offline.png").also { it.parentFile?.mkdirs() })
+        } finally { de.schee.wetter.data.Network.preview(true) }
+    }
+
     /** Sehr hohes Fenster, damit die ganze Seite auf ein Bild passt. */
     @Test @Config(qualifiers = "w411dp-h5200dp-xxhdpi")
     fun mainFull() {

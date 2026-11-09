@@ -49,7 +49,10 @@ object Satellite {
     private fun grays(context: Context?, layer: String, label: String): IntArray? = runCatching {
         val file = context?.let { File(File(it.cacheDir, "world").apply { mkdirs() }, "sat2_${layer.substringBefore(':')}.jpg") }
         val bytes = if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < 30 * 60_000L) file.readBytes()
-        else Http.get(label, worldUrl(layer, "image/jpeg", "&bgcolor=0x000000"), timeoutMs = 40_000).also { b -> file?.let { runCatching { it.writeBytes(b) } } }
+        else runCatching { Http.get(label, worldUrl(layer, "image/jpeg", "&bgcolor=0x000000"), timeoutMs = 40_000) }
+            .onSuccess { b -> file?.let { runCatching { it.writeBytes(b) } } }
+            // ohne Netz: das zuletzt gespeicherte Bild, auch wenn älter
+            .getOrElse { e -> if (file != null && file.exists()) file.readBytes() else throw e }
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
         val s = if (bmp.width == WORLD_PX && bmp.height == WORLD_PX) bmp else Bitmap.createScaledBitmap(bmp, WORLD_PX, WORLD_PX, true)
         val px = IntArray(WORLD_PX * WORLD_PX); s.getPixels(px, 0, WORLD_PX, 0, 0, WORLD_PX, WORLD_PX)

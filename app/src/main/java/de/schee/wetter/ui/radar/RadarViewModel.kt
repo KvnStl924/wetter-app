@@ -136,6 +136,7 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             set { it.copy(worldStart = start, world = it.world.filterKeys { k -> !k.isBefore(start) }) }
             var ww = loadHour(start)
             if (ww == null) ww = loadHour(start.minusSeconds(3600)) // DWD noch nicht so weit → eine Stunde früher
+            if (ww == null) ww = withContext(Dispatchers.IO) { DwdWorld.newestCached(getApplication()) }?.also { AppLog.data("Weltdaten: kein Netz – gespeicherter Stand ${it.time}") }
             if (ww == null) { set { it.copy(worldError = "Temperatur und Wind gerade nicht erreichbar (DWD).") }; return@launch }
             set { it.copy(world = it.world + (start to ww), worldError = null) }
             AppLog.data("Weltdaten Temperatur/Wind bereit (${System.currentTimeMillis() - started} ms)")

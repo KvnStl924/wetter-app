@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -240,16 +242,28 @@ private fun WeatherPage(
                     if (isGps) Text("➤  MEIN STANDORT", style = WType.label.copy(color = WColors.Text))
                     Text(place?.name ?: if (isGps) "Standort wird ermittelt …" else "Wetter", style = WType.city, textAlign = TextAlign.Center)
                     if (f != null) {
-                        Text(units.t(f.current.temp), style = WType.bigTemp, modifier = Modifier.padding(start = 24.dp))
+                        // Temperatur zählt beim Aktualisieren sanft zum neuen Wert
+                        val animate = de.schee.wetter.ui.sky.LocalAnimate.current
+                        val target = units.tNum(f.current.temp)
+                        val shown = if (animate) androidx.compose.animation.core.animateIntAsState(target, androidx.compose.animation.core.tween(700), label = "temp").value else target
+                        Text("$shown°", style = WType.bigTemp, modifier = Modifier.padding(start = 24.dp))
                         Text(WeatherCodes.text(f.current.code, f.current.isDay), style = WType.condition)
                         todayDay?.let { Text("H: ${units.t(it.tMax)}  T: ${units.t(it.tMin)}", style = WType.highLow) }
                     } else if (ui.loading) {
                         Spacer(Modifier.height(24.dp)); CircularProgressIndicator(color = WColors.Text, strokeWidth = 2.dp)
                     }
-                    ui.error?.let { Text(it, style = WType.bodyDim, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)) }
-                    if (f != null && ui.error != null) {
-                        val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(f.fetchedAt), zone)
-                        Text("Stand ${"%02d:%02d".format(t.hour, t.minute)}", style = WType.bodyDim)
+                    // Ohne Netz: kleiner Hinweis mit dem Stand der gezeigten Daten (statt Fehlermeldung)
+                    val online by de.schee.wetter.data.Network.online.collectAsState()
+                    val offline = !online && f != null
+                    AnimatedVisibility(offline, enter = fadeIn() + slideInVertically { -it / 2 }, exit = fadeOut()) {
+                        if (f != null) OfflinePill(f.fetchedAt, zone)
+                    }
+                    if (!offline) {
+                        ui.error?.let { Text(it, style = WType.bodyDim, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)) }
+                        if (f != null && ui.error != null) {
+                            val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(f.fetchedAt), zone)
+                            Text("Stand ${"%02d:%02d".format(t.hour, t.minute)}", style = WType.bodyDim)
+                        }
                     }
                 }
 
@@ -269,16 +283,27 @@ private fun WeatherPage(
                 }
 
                 if (f != null) {
-                    val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon)
-                    de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); onEdit(true) }
-                    HourlyCard(f, now, mode, units, onMode)
-                    DailyCard(f, today, mode, units) { onOpenDay(f, it) }
-                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = onEdit, onOpenMap = onOpenRadar)
-                    Text(
-                        "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
-                        style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    )
+                    // Inhalt blendet beim ersten Laden weich ein und gleitet leicht nach oben
+                    val animate = de.schee.wetter.ui.sky.LocalAnimate.current
+                    var shownOnce by remember { mutableStateOf(!animate) }
+                    LaunchedEffect(Unit) { shownOnce = true }
+                    val appear by androidx.compose.animation.core.animateFloatAsState(if (shownOnce) 1f else 0f, androidx.compose.animation.core.tween(450), label = "appear")
+                    val lift = with(density) { 24.dp.toPx() }
+                    Column(
+                        Modifier.graphicsLayer { alpha = appear; translationY = (1 - appear) * lift },
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon)
+                        de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); onEdit(true) }
+                        HourlyCard(f, now, mode, units, onMode)
+                        DailyCard(f, today, mode, units) { onOpenDay(f, it) }
+                        de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = onEdit, onOpenMap = onOpenRadar)
+                        Text(
+                            "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
+                            style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(96.dp))
             }
@@ -377,5 +402,20 @@ private fun RoundButton(glyph: String, onClick: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** Hinweis ohne Netz: „Offline · Stand 14:05“ – die gezeigten Daten sind der letzte gespeicherte Stand. */
+@Composable
+private fun OfflinePill(fetchedAt: Long, zone: ZoneId) {
+    val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(fetchedAt), zone)
+    val day = if (t.toLocalDate() == LocalDateTime.now(zone).toLocalDate()) "" else "${t.dayOfMonth}.${t.monthValue}. "
+    Row(
+        Modifier.padding(top = 10.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .35f)).padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(7.dp).clip(CircleShape).background(WColors.Warn))
+        Spacer(Modifier.width(7.dp))
+        Text("Offline · Stand $day${"%02d:%02d".format(t.hour, t.minute)}", style = WType.small)
     }
 }

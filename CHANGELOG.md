@@ -1,6 +1,14 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.0 – Feinschliff
+- Ohne Netz: kleiner Hinweis „Offline · Stand 14:05“ statt Fehlermeldung; gezeigt wird der letzte gespeicherte Stand
+- Kommt das Netz zurück, aktualisiert die App von selbst (nur solange sie offen ist)
+- „Mein Standort“ behält ohne Netz seinen Ortsnamen; ohne GPS-Signal gilt der zuletzt bekannte Ort
+- Radar ohne Netz: Temperatur, Wind und Wolken vom zuletzt gespeicherten Stand
+- Weiche Animationen: Inhalt blendet beim Laden sanft ein, die große Temperatur zählt zum neuen Wert
+- Mehr automatische Tests (Ortsliste, Blitze, Weltdaten, Wettertexte)
+
 ## 0.5.4 – Radar: Datumsgrenze, Blitze fest auf der Karte
 - Temperatur, Wind und Wolken gehen über die Datumsgrenze (Pazifik) weiter – vorher endete die Fläche mit harter Kante
 - Blitze und Werte werden direkt in der Karte gezeichnet und gehen beim Wischen exakt mit (vorher hingen sie hinterher)

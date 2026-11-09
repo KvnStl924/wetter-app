@@ -43,10 +43,19 @@ class MainActivity : ComponentActivity() {
                 // Nur solange die App sichtbar ist – beim Verlassen wird abgebrochen (keine Hintergrundarbeit).
                 val radarVm = viewModel<de.schee.wetter.ui.radar.RadarViewModel>()
                 val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+                val weatherVm = viewModel<WeatherViewModel>()
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                         radarVm.preload()
-                        try { kotlinx.coroutines.awaitCancellation() } finally { radarVm.stop() }
+                        // Netz beobachten (nur bei sichtbarer App): kommt es zurück, alles von selbst aktualisieren
+                        var wasOnline: Boolean? = null
+                        try {
+                            de.schee.wetter.data.Network.watch(this@MainActivity).collect { on ->
+                                if (wasOnline != null && on != wasOnline) AppLog.i(AppLog.Cat.DATEN, if (on) "Netz wieder da" else "Kein Netz – Offline-Anzeige")
+                                if (wasOnline == false && on) { weatherVm.refresh("Netz wieder da"); radarVm.preload() }
+                                wasOnline = on
+                            }
+                        } finally { radarVm.stop() }
                     }
                 }
                 BackHandler(enabled = screen != "main") {

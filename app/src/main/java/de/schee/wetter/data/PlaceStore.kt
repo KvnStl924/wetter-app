@@ -26,6 +26,13 @@ class PlaceStore(context: Context) {
         prefs.edit().putString("list", serialize(places)).apply()
     }
 
+    /** Zuletzt ermittelter „Mein Standort“ – für den Start ohne Netz bzw. ohne GPS-Signal. */
+    fun lastGps(): Place? = prefs.getString("last_gps", null)?.let { parse("[$it]").firstOrNull()?.copy(fromGps = true) }
+
+    fun saveLastGps(p: Place) {
+        prefs.edit().putString("last_gps", serialize(listOf(p)).removePrefix("[").removeSuffix("]")).apply()
+    }
+
     companion object {
         fun id(p: Place) = "%.3f,%.3f".format(Locale.US, p.lat, p.lon)
 

@@ -147,7 +147,13 @@ object DwdWorld {
         if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < maxAgeH * 3600_000L) {
             runCatching { return WorldGrid.fromGeoTiff(file.readBytes()) }
         }
-        val bytes = Http.get("${f.label} ${time.toString().substring(11, 16)} UTC", url(f, time), timeoutMs = 30_000)
+        val bytes = try {
+            Http.get("${f.label} ${time.toString().substring(11, 16)} UTC", url(f, time), timeoutMs = 30_000)
+        } catch (e: Exception) {
+            // ohne Netz: gespeicherte Datei auch wenn älter (bis 12 Stunden, dann räumt die App sie weg)
+            if (file != null && file.exists()) return WorldGrid.fromGeoTiff(file.readBytes())
+            throw e
+        }
         val g = WorldGrid.fromGeoTiff(bytes)
         if (file != null) runCatching {
             file.writeBytes(bytes)
@@ -156,4 +162,12 @@ object DwdWorld {
         }
         return g
     }
+
+    /** Ohne Netz: jüngste gespeicherte Stunde, für die Temperatur und Wind vorliegen (oder null). */
+    fun newestCached(context: Context): WorldWeather? = runCatching {
+        val dir = File(context.cacheDir, "world")
+        val hours = dir.listFiles()?.mapNotNull { f -> f.name.removePrefix("temp_").removeSuffix(".tif").takeIf { f.name.startsWith("temp_") }?.toLongOrNull() }?.sortedDescending() ?: return null
+        val h = hours.firstOrNull { File(dir, "wind_$it.tif").exists() } ?: return null
+        WorldWeather(Instant.ofEpochSecond(h * 3600), WorldGrid.fromGeoTiff(File(dir, "temp_$h.tif").readBytes()), WorldGrid.fromGeoTiff(File(dir, "wind_$h.tif").readBytes()))
+    }.getOrNull()
 }

@@ -105,7 +105,7 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
             val ctx = getApplication<Application>()
             AppLog.i(AppLog.Cat.DATEN, "Aktualisieren ($reason)")
             set(id) { it.copy(loading = true, error = null) }
-            val place = if (id == GPS) LocationSource.current(ctx) ?: _states.value[id]?.place else placeOf(id)
+            val place = if (id == GPS) gpsPlace(ctx) else placeOf(id)
             if (place == null) {
                 set(id) { it.copy(loading = false, error = "Standort gerade nicht verfügbar.") }
                 return@launch
@@ -134,6 +134,20 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { climate.normalMax(place.lat, place.lon, today) }.onSuccess { n -> set(id) { it.copy(normalMax = n) } }
             }
         }
+    }
+
+    /**
+     * „Mein Standort“: aktuelle Position; ohne Signal die zuletzt bekannte. Ohne Netz kann Android den
+     * Ortsnamen nicht nachschlagen – liegt man nah am zuletzt bekannten Ort (< 5 km), bleibt dessen Name.
+     */
+    private suspend fun gpsPlace(ctx: Application): Place? {
+        val last = _states.value[GPS]?.place ?: store.lastGps()
+        val now = LocationSource.current(ctx) ?: return last
+        val coordName = now.name.contains("°")
+        val near = last != null && kotlin.math.hypot(now.lat - last.lat, (now.lon - last.lon) * kotlin.math.cos(Math.toRadians(now.lat))) < 0.045
+        val p = if (coordName && near) now.copy(name = last!!.name) else now
+        if (!p.name.contains("°")) store.saveLastGps(p)
+        return p
     }
 
     /** Für die Ortsliste: kurze Vorhersage aller Orte laden, die noch keine haben (nur bei offener Liste). */
