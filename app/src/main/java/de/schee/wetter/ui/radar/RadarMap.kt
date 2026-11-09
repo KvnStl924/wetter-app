@@ -272,7 +272,16 @@ fun RadarMap(
                 val firstLine = s.layers.firstOrNull { it.id == "waterway" || it.id.startsWith("boundary") }?.id ?: labels
                 fun below(l: RasterLayer, id: String?) { if (id != null && s.getLayer(id) != null) s.addLayerBelow(l, id) else s.addLayer(l) }
                 listOf(raster("field-land", "field", 1f), raster("field2-land", "field2", 1f)).forEach { below(it, "water") }
-                listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f), raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f)).forEach { below(it, firstLine) }
+                // Dunkler Schleier über dem Meer (nur bei Wind): Wind bleibt sichtbar, Küsten heben sich ab (Kevin am 09.11.2026)
+                val waterSrc = (s.getLayer("water") as? org.maplibre.android.style.layers.FillLayer)?.sourceId
+                if (waterSrc != null) {
+                    val veil = org.maplibre.android.style.layers.FillLayer("water-veil", waterSrc).withSourceLayer("water").withProperties(
+                        PropertyFactory.fillColor("rgb(16,21,28)"), PropertyFactory.fillOpacity(0.55f), PropertyFactory.fillAntialias(false), PropertyFactory.visibility(Property.NONE))
+                    if (firstLine != null && s.getLayer(firstLine) != null) s.addLayerBelow(veil, firstLine) else s.addLayer(veil)
+                }
+                val fieldBelow = if (s.getLayer("water-veil") != null) "water-veil" else firstLine
+                listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f)).forEach { below(it, fieldBelow) }
+                listOf(raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f)).forEach { below(it, firstLine) }
                 // Regen darüber (über Grenzen, unter Ortsnamen)
                 listOf(raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
                 addOverlayLayers(s)
@@ -311,11 +320,12 @@ fun RadarMap(
     val empty = remember { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
     LaunchedEffect(style, radar) { (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty) }
     LaunchedEffect(style, field) { listOf("field", "field2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(field ?: empty) } }
-    LaunchedEffect(style, fieldLandOnly) {
+    LaunchedEffect(style, fieldLandOnly, field != null) {
         val s = style ?: return@LaunchedEffect
         fun vis(on: Boolean) = PropertyFactory.visibility(if (on) Property.VISIBLE else Property.NONE)
         listOf("field-land", "field2-land").forEach { s.getLayer(it)?.setProperties(vis(fieldLandOnly)) }
         listOf("field-layer", "field2-layer").forEach { s.getLayer(it)?.setProperties(vis(!fieldLandOnly)) }
+        s.getLayer("water-veil")?.setProperties(vis(field != null && !fieldLandOnly))
     }
     LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
     LaunchedEffect(style, labels) { (style?.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels)) }

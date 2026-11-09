@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.2 – Windkarte: Küsten sichtbar
+- Über dem Meer liegt bei Wind ein dunkler Schleier: der Wind bleibt sichtbar, Land und Meer heben sich klar ab
+
 ## 0.6.1 – Karte unter Temperatur und Wind lesbar
 - Grenzen und Flüsse liegen jetzt über der Farbfläche (Temperatur, Wind, Wolken) – vorher verdeckt
 - Temperatur färbt nur das Land, das Meer bleibt dunkelblau (Küsten klar erkennbar); Wind weiterhin auch über dem Meer
