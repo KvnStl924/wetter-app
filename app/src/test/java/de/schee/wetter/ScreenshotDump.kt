@@ -40,7 +40,7 @@ class ScreenshotDump {
             warnings = de.schee.wetter.data.WarningsRepository.parse(res("warnings.json")))
         val now = f.days[0].sunrise!!.plusHours(5)
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
-        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now) } } }
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now, previewPageCount = 3) } } }
         settle()
         save(activity.window.decorView, File(out, "main_top.png"))
     }
@@ -69,6 +69,23 @@ class ScreenshotDump {
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = f.days[0].sunrise!!.plusHours(3), previewEditTiles = true) } } }
         settle()
         save(activity.window.decorView, File(target, "edit_tiles.png").also { it.parentFile?.mkdirs() })
+    }
+
+    /** Ortsliste mit „Mein Standort“ und zwei gespeicherten Orten. */
+    @Test fun places() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis())
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val vm = de.schee.wetter.ui.WeatherViewModel(activity.application)
+        val koeln = Place("Köln", 50.94, 6.96, false); val palma = Place("Palma", 39.57, 2.65, false)
+        vm.preview(listOf(koeln, palma), mapOf(
+            de.schee.wetter.ui.WeatherViewModel.GPS to WeatherUi(place = Place("Mechernich", 50.59, 6.65, true), forecast = f),
+            de.schee.wetter.data.PlaceStore.id(koeln) to WeatherUi(place = koeln, forecast = f),
+            de.schee.wetter.data.PlaceStore.id(palma) to WeatherUi(place = palma, forecast = f)))
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.PlacesScreen(onClose = {}, vm = vm) } } }
+        settle()
+        save(activity.window.decorView, File(target, "places.png").also { it.parentFile?.mkdirs() })
     }
 
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")

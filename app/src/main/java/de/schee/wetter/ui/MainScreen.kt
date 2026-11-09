@@ -88,30 +88,38 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 
+
+/**
+ * Hauptseite: je Ort eine Seite zum Wischen (Seite 0 = „Mein Standort“, wenn erlaubt), unten die Leiste
+ * mit Karte, Seitenpunkten (öffnen die Ortsliste) und Einstellungen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     onOpenSettings: () -> Unit,
     /** Vollbild-Radar öffnen (Ebene, Herkunft fürs Log). */
     onOpenRadar: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit = { _, _ -> },
+    /** Ortsliste öffnen. */
+    onOpenPlaces: () -> Unit = {},
     vm: WeatherViewModel = viewModel(),
     /** Nur für Bildschirmfotos im Test: feste Daten statt Laden. */
     preview: WeatherUi? = null,
     previewNow: LocalDateTime? = null,
     previewEditTiles: Boolean = false,
+    previewPageCount: Int = 1,
 ) {
     val context = LocalContext.current
-    val live by vm.ui.collectAsState()
-    val ui = preview ?: live
+    val livePages by vm.pages.collectAsState()
+    val states by vm.states.collectAsState()
+    val selected by vm.selected.collectAsState()
+    val pageIds = if (preview != null) List(previewPageCount) { if (it == 0) WeatherViewModel.GPS else "p$it" } else livePages
     val tileState = remember { de.schee.wetter.ui.tiles.TileState(de.schee.wetter.ui.tiles.TileStore(context)) }
     var editTiles by rememberSaveable { mutableStateOf(previewEditTiles) }
     var hint by remember { mutableStateOf<String?>(null) }
     var hintId by remember { mutableIntStateOf(0) }
-    val units = remember(ui.forecast) { Units.from(context) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var mode by rememberSaveable { mutableStateOf(Mode.TEMP) }
-    var openDay by remember { mutableStateOf<Day?>(null) }
-    var showSearch by remember { mutableStateOf(false) }
+    var openDay by remember { mutableStateOf<Pair<de.schee.wetter.data.Forecast, Day>?>(null) }
     var driveConnected by remember { mutableStateOf(preview != null || DriveSync.treeUri(context) != null) }
     var askedPermission by rememberSaveable { mutableStateOf(false) }
 
@@ -122,9 +130,9 @@ fun MainScreen(
         if (uri != null) { DriveSync.saveTree(context, uri); driveConnected = true } else AppLog.tap("Drive-Ordnerauswahl abgebrochen")
     }
 
-    // Laden nur, solange die App sichtbar ist
     androidx.activity.compose.BackHandler(enabled = editTiles) { AppLog.tap("Zurück-Geste → Kacheln bearbeiten beendet"); editTiles = false }
 
+    // Laden nur, solange die App sichtbar ist
     LaunchedEffect(lifecycle) {
         if (preview != null) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -137,9 +145,73 @@ fun MainScreen(
         }
     }
 
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = selected) { pageIds.size.coerceAtLeast(1) }
+    // Wischen → Seite merken (lädt sie, falls nötig); Auswahl aus der Ortsliste → hinblättern
+    LaunchedEffect(pager.settledPage) { if (preview == null && pageIds.isNotEmpty()) { if (pager.settledPage != selected) AppLog.tap("Wisch → Seite ${pager.settledPage + 1}"); vm.select(pager.settledPage) } }
+    LaunchedEffect(selected, pageIds.size) { if (selected != pager.currentPage && selected < pageIds.size) pager.scrollToPage(selected) }
+
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = pager, userScrollEnabled = !editTiles, beyondViewportPageCount = 0,
+            modifier = Modifier.fillMaxSize(), key = { pageIds.getOrElse(it) { "leer" } },
+        ) { page ->
+            val id = pageIds.getOrNull(page)
+            val ui = preview ?: when (id) {
+                null -> WeatherUi(needsPermission = true)
+                else -> states[id] ?: vm.uiFor(id).copy(loading = true)
+            }
+            WeatherPage(
+                ui = ui, isGps = id == WeatherViewModel.GPS, previewNow = previewNow, tileState = tileState, editTiles = editTiles,
+                mode = mode, driveConnected = driveConnected,
+                onMode = { mode = it }, onEdit = { editTiles = it }, onOpenDay = { f, d -> openDay = f to d },
+                onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); vm.refresh("Herunterziehen") },
+                onAllowLocation = { permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) },
+                onSearch = onOpenPlaces, onPickFolder = { pickFolder.launch(null) }, onOpenRadar = onOpenRadar,
+            )
+        }
+
+        LaunchedEffect(hintId) { if (hint != null) { delay(2600); hint = null } }
+        AnimatedVisibility(
+            visible = hint != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 74.dp, start = 24.dp, end = 24.dp),
+        ) {
+            Text(hint ?: "", style = WType.small, textAlign = TextAlign.Center,
+                modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 16.dp, vertical = 11.dp))
+        }
+
+        BottomBar(
+            Modifier.align(Alignment.BottomCenter),
+            pageCount = pageIds.size, current = pager.currentPage, gpsFirst = pageIds.firstOrNull() == WeatherViewModel.GPS,
+            onMap = { onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Leiste unten → Karte") },
+            onPlaces = { AppLog.tap("Leiste unten → Ortsliste"); onOpenPlaces() },
+            onList = onOpenSettings,
+        )
+    }
+
+    openDay?.let { (f, d) ->
+        val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val today = LocalDateTime.now(runCatching { ZoneId.of(f.timezone) }.getOrDefault(ZoneId.systemDefault())).toLocalDate()
+        ModalBottomSheet(onDismissRequest = { AppLog.tap("Tagesdetails geschlossen"); openDay = null }, sheetState = sheet, containerColor = Color(0xFF141A2B)) {
+            Column(Modifier.verticalScroll(rememberScrollState())) { DayDetails(f, d, today, Units.from(context)) }
+        }
+    }
+}
+
+/** Eine Seite (ein Ort): Himmel, Kopf, Stundenliste, 10 Tage, Kacheln. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeatherPage(
+    ui: WeatherUi, isGps: Boolean, previewNow: LocalDateTime?, tileState: de.schee.wetter.ui.tiles.TileState, editTiles: Boolean,
+    mode: Mode, driveConnected: Boolean,
+    onMode: (Mode) -> Unit, onEdit: (Boolean) -> Unit, onOpenDay: (de.schee.wetter.data.Forecast, Day) -> Unit,
+    onRefresh: () -> Unit, onAllowLocation: () -> Unit, onSearch: () -> Unit, onPickFolder: () -> Unit,
+    onOpenRadar: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit,
+) {
+    val context = LocalContext.current
+    val units = remember(ui.forecast) { Units.from(context) }
     val f = ui.forecast
     val zone = remember(f?.timezone) { runCatching { ZoneId.of(f?.timezone ?: "Europe/Berlin") }.getOrDefault(ZoneId.systemDefault()) }
-    var now by remember { mutableStateOf(previewNow ?: LocalDateTime.now(zone)) }
+    var now by remember(zone) { mutableStateOf(previewNow ?: LocalDateTime.now(zone)) }
     LaunchedEffect(zone) { if (previewNow == null) while (true) { now = LocalDateTime.now(zone); delay(60_000) } }
     val today = now.toLocalDate()
     val todayDay = f?.days?.firstOrNull { it.date == today }
@@ -154,11 +226,7 @@ fun MainScreen(
     Box(Modifier.fillMaxSize()) {
         SkyBackground(skyWeather, skyTime, Modifier.fillMaxSize())
 
-        PullToRefreshBox(
-            isRefreshing = ui.loading && f != null,
-            onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); vm.refresh("Herunterziehen") },
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        PullToRefreshBox(isRefreshing = ui.loading && f != null, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
             Column(
                 Modifier.fillMaxSize().verticalScroll(scroll).statusBarsPadding().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -169,8 +237,8 @@ fun MainScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     val place = ui.place
-                    if (place?.fromGps == true) Text("➤  MEIN STANDORT", style = WType.label.copy(color = WColors.Text))
-                    Text(place?.name ?: "Wetter", style = WType.city, textAlign = TextAlign.Center)
+                    if (isGps) Text("➤  MEIN STANDORT", style = WType.label.copy(color = WColors.Text))
+                    Text(place?.name ?: if (isGps) "Standort wird ermittelt …" else "Wetter", style = WType.city, textAlign = TextAlign.Center)
                     if (f != null) {
                         Text(units.t(f.current.temp), style = WType.bigTemp, modifier = Modifier.padding(start = 24.dp))
                         Text(WeatherCodes.text(f.current.code, f.current.isDay), style = WType.condition)
@@ -188,26 +256,24 @@ fun MainScreen(
                 if (ui.needsPermission && f == null) {
                     Tile("Standort") {
                         Text("Erlaube den Standort, damit die App das Wetter dort zeigt, wo du gerade bist. Oder such dir einen Ort aus.", style = WType.bodyDim)
-                        ActionButton("Standort erlauben", "Kachel Standort → erlauben") {
-                            permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
-                        }
-                        ActionButton("Ort suchen", "Kachel Standort → Ort suchen", color = WColors.Good) { showSearch = true }
+                        ActionButton("Standort erlauben", "Kachel Standort → erlauben", onClick = onAllowLocation)
+                        ActionButton("Ort suchen", "Kachel Standort → Ort suchen", color = WColors.Good, onClick = onSearch)
                     }
                 }
 
                 if (!driveConnected) {
                     Tile("Google Drive verbinden") {
                         Text("Wähle einmal den Ordner „Meine Ablage › Apps › Wetter-App“, damit Logs und Fehlerberichte automatisch dort landen.", style = WType.bodyDim)
-                        ActionButton("Ordner auswählen", "Kachel Drive → Ordner auswählen") { pickFolder.launch(null) }
+                        ActionButton("Ordner auswählen", "Kachel Drive → Ordner auswählen", onClick = onPickFolder)
                     }
                 }
 
                 if (f != null) {
                     val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon)
-                    de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); editTiles = true }
-                    HourlyCard(f, now, mode, units) { mode = it }
-                    DailyCard(f, today, mode, units) { openDay = it }
-                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = { editTiles = it }, onOpenMap = { l, from -> onOpenRadar(l, from) })
+                    de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); onEdit(true) }
+                    HourlyCard(f, now, mode, units, onMode)
+                    DailyCard(f, today, mode, units) { onOpenDay(f, it) }
+                    de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = onEdit, onOpenMap = onOpenRadar)
                     Text(
                         "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
                         style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
@@ -229,75 +295,46 @@ fun MainScreen(
                 Text("${units.t(f.current.temp)} | ${WeatherCodes.text(f.current.code, f.current.isDay)}", style = WType.bodyDim)
             }
         }
-
-        LaunchedEffect(hintId) { if (hint != null) { delay(2600); hint = null } }
-        AnimatedVisibility(
-            visible = hint != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 74.dp, start = 24.dp, end = 24.dp),
-        ) {
-            Text(hint ?: "", style = WType.small, textAlign = TextAlign.Center,
-                modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 16.dp, vertical = 11.dp))
-        }
-
-        BottomBar(
-            Modifier.align(Alignment.BottomCenter),
-            onMap = { onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Leiste unten → Karte") },
-            onPlaces = { AppLog.tap("Leiste unten → Ort suchen"); showSearch = true },
-            onList = onOpenSettings,
-        )
-    }
-
-    openDay?.let { d ->
-        val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { AppLog.tap("Tagesdetails geschlossen"); openDay = null }, sheetState = sheet, containerColor = Color(0xFF141A2B)) {
-            Column(Modifier.verticalScroll(rememberScrollState())) { f?.let { DayDetails(it, d, today, units) } }
-        }
-    }
-    if (showSearch) {
-        val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { AppLog.tap("Ortssuche geschlossen"); showSearch = false }, sheetState = sheet, containerColor = Color(0xFF141A2B)) {
-            SearchSheet(
-                gpsAvailable = LocationSource.hasPermission(context),
-                onPick = { p -> AppLog.tap("Ortssuche → ${p.name} gewählt"); vm.choosePlace(p); showSearch = false },
-                onGps = {
-                    AppLog.tap("Ortssuche → Mein Standort")
-                    context.getSharedPreferences("places", android.content.Context.MODE_PRIVATE).edit().remove("manual").apply()
-                    showSearch = false; vm.refresh("Mein Standort gewählt")
-                },
-            )
-        }
     }
 }
 
-/** Ortssuche (vollständige Ortsliste folgt mit 0.5.0). */
+/** Ortssuche für die Ortsliste. */
 @Composable
-private fun SearchSheet(gpsAvailable: Boolean, onPick: (Place) -> Unit, onGps: () -> Unit) {
+fun PlaceSearchField(onPick: (Place) -> Unit) {
     val scope = rememberCoroutineScope()
     var q by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Ort wählen", style = WType.title)
-        if (gpsAvailable) ActionButton("➤  Mein Standort", "Ortssuche → Mein Standort", onClick = onGps)
-        fun run() { if (q.isNotBlank()) { searching = true; scope.launch { results = runCatching { PlaceSearch.search(q) }.getOrDefault(emptyList()); searching = false } } }
+    // Suche beim Tippen (kurz verzögert), nicht erst mit der Taste
+    LaunchedEffect(q) {
+        if (q.length < 2) { results = emptyList(); return@LaunchedEffect }
+        delay(400); searching = true
+        results = runCatching { PlaceSearch.search(q) }.getOrDefault(emptyList()); searching = false
+        AppLog.tap("Ortsliste → Suche „$q“ (${results.size} Treffer)")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(
             value = q, onValueChange = { q = it }, singleLine = true,
-            placeholder = { Text("Stadt oder Ort", style = WType.bodyDim) },
+            placeholder = { Text("Nach Stadt oder Ort suchen", style = WType.bodyDim) },
             textStyle = WType.body, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { AppLog.tap("Ortssuche → Suche „$q“"); run() }),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = WColors.Accent, unfocusedBorderColor = WColors.Glass, cursorColor = WColors.Accent),
+            keyboardActions = KeyboardActions(onSearch = { scope.launch { } }),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = WColors.Accent, unfocusedBorderColor = WColors.Glass, cursorColor = WColors.Accent,
+                focusedContainerColor = Color.White.copy(alpha = .06f), unfocusedContainerColor = Color.White.copy(alpha = .06f)),
         )
         if (searching) CircularProgressIndicator(color = WColors.Text, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
         results.forEach { p ->
-            Text(p.name, style = WType.body, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onPick(p) }.padding(vertical = 10.dp, horizontal = 4.dp))
+            Text(p.name, style = WType.body, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .clickable { q = ""; results = emptyList(); onPick(p) }.padding(vertical = 10.dp, horizontal = 4.dp))
         }
-        if (!searching && results.isEmpty() && q.isNotBlank()) Text("Tippe auf Suchen auf der Tastatur.", style = WType.bodyDim)
+        if (!searching && results.isEmpty() && q.length >= 2) Text("Kein Ort gefunden.", style = WType.bodyDim)
     }
 }
 
+/** Untere Leiste: Karte · Seitenpunkte (➤ für „Mein Standort“, aktuelle Seite hell) · Einstellungen. */
 @Composable
-private fun BottomBar(modifier: Modifier, onMap: () -> Unit, onPlaces: () -> Unit, onList: () -> Unit) {
+private fun BottomBar(modifier: Modifier, pageCount: Int, current: Int, gpsFirst: Boolean, onMap: () -> Unit, onPlaces: () -> Unit, onList: () -> Unit) {
     Row(
         modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .55f))))
@@ -309,8 +346,12 @@ private fun BottomBar(modifier: Modifier, onMap: () -> Unit, onPlaces: () -> Uni
             Modifier.clip(RoundedCornerShape(50)).background(WColors.Glass).clickable { onPlaces() }.padding(horizontal = 14.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("➤", style = WType.label.copy(color = WColors.Text))
-            repeat(3) { Box(Modifier.size(6.dp).clip(CircleShape).background(WColors.Label)) }
+            val n = pageCount.coerceAtLeast(1)
+            for (i in 0 until n.coerceAtMost(12)) {
+                val color = if (i == current) WColors.Text else WColors.Label
+                if (i == 0 && gpsFirst) Text("➤", style = WType.label.copy(color = color))
+                else Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+            }
         }
         RoundButton("list", onList)
     }

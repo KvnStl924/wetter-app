@@ -1,6 +1,14 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.5.0 – Orte
+- Mehrere Orte: „Mein Standort“ ist immer die erste Seite, dahinter die gespeicherten Orte – auf der Hauptseite zwischen den Orten wischen
+- Seitenpunkte unten in der Mitte (➤ = Mein Standort, heller Punkt = aktueller Ort); Tippen öffnet die Ortsliste
+- Ortsliste: Suche beim Tippen, Karten mit Ortszeit, Wetterlage, Temperatur sowie Höchst-/Tiefstwert; Tippen öffnet den Ort
+- Bearbeiten (langes Drücken oder „Bearbeiten“): Orte am Griff ≡ verschieben, mit ⊖ löschen
+- Geladen wird nur der Ort, den man gerade ansieht (in der Ortsliste kurz alle) – wie bisher nur bei geöffneter App
+- Ein früher einzeln gewählter Ort wird automatisch in die Liste übernommen
+
 ## 0.4.11 – Live-Karten in den Kacheln
 - Kachel „Regenradar“ zeigt die echte Karte um den Ort mit dem aktuellen Live-Radar (DWD, weltweit RainViewer)
 - Kachel „Windkarte“ zeigt die echte Karte mit Windfarben, wandernden Windlinien und Windwerten
