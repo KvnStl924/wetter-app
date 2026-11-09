@@ -61,6 +61,9 @@ fun RadarMap(
     onCities: (List<MapCity>) -> Unit = {},
     /** Kachel-Modus: kleine, nicht bedienbare Karte (kein Verschieben/Zoomen, keine Knöpfe), Zoomstufe fest. */
     mini: Boolean = false,
+    /** Wolken (Satellitenbild des Ausschnitts) und Blitze (Kacheln) – null/false = aus. */
+    clouds: de.schee.wetter.data.Satellite.View? = null,
+    lightning: Boolean = false,
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -142,12 +145,14 @@ fun RadarMap(
                 val g = WindGrid.GERMANY
                 s.addSource(ImageSource("view", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("wind", quad(g.lon0 - g.step / 2, g.lon0 + (g.cols - 0.5) * g.step, g.lat0 - g.step / 2, g.lat0 + (g.rows - 0.5) * g.step), empty))
+                s.addSource(ImageSource("clouds", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("precip", quad(0.0, 1.0, 0.0, 1.0), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
-                // Reihenfolge von unten nach oben: Ausschnitt-Gitter, Wind Deutschland, (RainViewer), DWD-Radar, Ortsnamen
-                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
+                // Reihenfolge von unten nach oben: Ausschnitt-Gitter, Wind Deutschland, Wolken, (RainViewer), DWD-Radar, Blitze, Ortsnamen
+                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("clouds-layer", "clouds", 0.95f),
+                    raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
                     if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
                 }
                 style = s
@@ -172,7 +177,9 @@ fun RadarMap(
     LaunchedEffect(style, rainViewer, rvIndex) {
         val s = style ?: return@LaunchedEffect
         // Nur aktuelles und nächstes Bild laden (unsichtbare Ebenen mit visibility=none laden keine Kacheln).
-        rainViewer.indices.forEach { i ->
+        // Über alle vorhandenen RainViewer-Ebenen gehen – nicht nur über die aktuelle Liste: beim Abwählen
+        // von „Regen“ ist die Liste leer, die Ebenen müssen aber trotzdem ausgeblendet werden (Fehler bis 0.5.1).
+        s.layers.mapNotNull { it.id.removePrefix("rv-layer-").takeIf { r -> r != it.id }?.toIntOrNull() }.forEach { i ->
             val active = rvIndex != null && (i == rvIndex || i == rvIndex + 1)
             s.getLayer("rv-layer-$i")?.setProperties(
                 PropertyFactory.visibility(if (active) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE),
@@ -196,6 +203,36 @@ fun RadarMap(
         src.setImage(v.second)
     }
     LaunchedEffect(style, fieldView) { setGrid("view", fieldView) }
+    LaunchedEffect(style, clouds) {
+        val src = style?.getSource("clouds") as? ImageSource ?: return@LaunchedEffect
+        val c = clouds
+        if (c == null) { src.setImage(empty); return@LaunchedEffect }
+        src.setCoordinates(quad(c.west, c.east, c.south, c.north))
+        src.setImage(c.bitmap)
+    }
+
+    // Blitze: WMS-Kacheln von EUMETSAT; alle 5 Minuten neue Adresse (= neue Daten), nur solange eingeschaltet.
+    val lightningUrl = remember { arrayOfNulls<String>(1) }
+    LaunchedEffect(style, lightning) {
+        val s = style ?: return@LaunchedEffect
+        if (!lightning) { s.getLayer("lightning-layer")?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)); return@LaunchedEffect }
+        while (true) {
+            val url = de.schee.wetter.data.Satellite.lightningTiles()
+            val src = s.getSource("lightning") as? org.maplibre.android.style.sources.RasterSource
+            if (src == null || lightningUrl[0] != url) {
+                lightningUrl[0] = url
+                s.getLayer("lightning-layer")?.let { s.removeLayer(it) }
+                src?.let { s.removeSource(it) }
+                val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", url).apply { attribution = de.schee.wetter.data.Satellite.ATTRIBUTION; maxZoom = 9f }
+                s.addSource(org.maplibre.android.style.sources.RasterSource("lightning", tiles, 256))
+                val layer = RasterLayer("lightning-layer", "lightning").withProperties(PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterOpacity(0.95f))
+                val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
+                if (labels != null) s.addLayerBelow(layer, labels) else s.addLayer(layer)
+            }
+            s.getLayer("lightning-layer")?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
     LaunchedEffect(style, precipView) { setGrid("precip", precipView) }
 
     // Kachel: immer auf den aktuellen Ort ausgerichtet

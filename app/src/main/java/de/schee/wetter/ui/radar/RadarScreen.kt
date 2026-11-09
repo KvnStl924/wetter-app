@@ -112,12 +112,17 @@ fun RadarScreen(
     preview: Bitmap? = null,
     previewFix: LocationSource.Fix? = null,
     previewCities: List<MapCity> = emptyList(),
+    /** Testbild: Wolken-Ebene gleich eingeschaltet. */
+    previewClouds: Boolean = false,
 ) {
     val ui by vm.ui.collectAsState()
     // Ebenen sind Schalter und lassen sich kombinieren (z. B. Regen + Wind).
     var showRain by remember { mutableStateOf(initialLayer == RadarLayer.RAIN) }
     var showWind by remember { mutableStateOf(initialLayer == RadarLayer.WIND) }
     var showTemp by remember { mutableStateOf(initialLayer == RadarLayer.TEMP) }
+    var showClouds by remember { mutableStateOf(previewClouds) }
+    var showLightning by remember { mutableStateOf(false) }
+    val clouds by vm.clouds.collectAsState()
     var index by remember { mutableIntStateOf(if (ui.frames.isNotEmpty()) ui.nowIndex else -1) }
     var windHour by remember { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
@@ -129,7 +134,7 @@ fun RadarScreen(
     var centerTick by remember { mutableIntStateOf(0) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val units = remember { de.schee.wetter.data.Units.from(context) }
-    val title = listOfNotNull("Niederschlag".takeIf { showRain }, "Wind".takeIf { showWind }, "Temperatur".takeIf { showTemp })
+    val title = listOfNotNull("Niederschlag".takeIf { showRain }, "Wind".takeIf { showWind }, "Temperatur".takeIf { showTemp }, "Wolken".takeIf { showClouds }, "Blitze".takeIf { showLightning })
         .joinToString(" · ").ifEmpty { "Karte" }
 
     // Blauer Punkt: Live-Standort, nur solange das Radar sichtbar ist (kein Hintergrund).
@@ -211,6 +216,12 @@ fun RadarScreen(
         delay(700)
         vm.ensureView(tNow.south, tNow.north, tNow.west, tNow.east)
     }
+    // Wolken: Satellitenbild für den Ausschnitt (nur wenn eingeschaltet)
+    LaunchedEffect(showClouds, tNow?.let { listOf(Math.round(it.south * 4), Math.round(it.north * 4), Math.round(it.west * 4), Math.round(it.east * 4)) }) {
+        if (preview != null || tNow == null || !showClouds) return@LaunchedEffect
+        delay(500)
+        vm.ensureClouds(tNow.south, tNow.north, tNow.west, tNow.east)
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0C0C0C))) {
         if (preview != null) {
@@ -218,11 +229,11 @@ fun RadarScreen(
             transform = previewTransform(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
             val kind = ui.frames.getOrNull(index)?.kind
             val overlay = if (showRain && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind) } else null
-            PreviewMap(preview, overlay, listOfNotNull(fieldView, fieldBase, precipView), transform!!)
+            PreviewMap(preview, overlay, listOfNotNull(fieldView, fieldBase, precipView), transform!!, if (showClouds) clouds else null)
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
                 precipView, fieldView, fieldBase, center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
-                onCities = { cities = it }) { transform = it }
+                onCities = { cities = it }, clouds = if (showClouds) clouds else null, lightning = showLightning) { transform = it }
         }
         val t = transform
         val field = ui.wind?.let { de.schee.wetter.data.WindField(it, ui.windView) }
@@ -246,6 +257,8 @@ fun RadarScreen(
                 ToggleButton(showRain, { showRain = !showRain; playing = false; AppLog.tap("Vollbild-Radar → Regen ${if (showRain) "an" else "aus"}") }) { RainGlyph() }
                 ToggleButton(showWind, { showWind = !showWind; playing = false; AppLog.tap("Vollbild-Radar → Wind ${if (showWind) "an" else "aus"}") }) { WindGlyph() }
                 ToggleButton(showTemp, { showTemp = !showTemp; playing = false; AppLog.tap("Vollbild-Radar → Temperatur ${if (showTemp) "an" else "aus"}") }) { TempGlyph() }
+                ToggleButton(showClouds, { showClouds = !showClouds; AppLog.tap("Vollbild-Radar → Wolken ${if (showClouds) "an" else "aus"}") }) { CloudGlyph() }
+                ToggleButton(showLightning, { showLightning = !showLightning; AppLog.tap("Vollbild-Radar → Blitze ${if (showLightning) "an" else "aus"}") }) { BoltGlyph() }
             }
             // Unten: Zeitleiste und Legende
             Column(
@@ -258,7 +271,13 @@ fun RadarScreen(
                 else if (showWind || showTemp) WindTimeline(ui, windHour, playing, temp = showTemp && !showWind, onPlay = {
                     playing = !playing; AppLog.tap("$title → ${if (playing) "Abspielen" else "Pause"}")
                 }, onHour = { playing = false; windHour = it }, onDone = { AppLog.tap("$title → Zeitleiste auf Stunde +$windHour") })
-                else Text("Wähle rechts Regen, Wind oder Temperatur.", style = WType.bodyDim)
+                else if (!showClouds && !showLightning) Text("Wähle rechts Regen, Wind, Temperatur, Wolken oder Blitze.", style = WType.bodyDim)
+                // Wolken/Blitze: nur der aktuelle Stand (Satellit), daher keine eigene Zeitleiste
+                if (showClouds || showLightning) Text(listOfNotNull(
+                    if (showClouds) "Wolken: Satellitenbild" + (clouds?.let { " · geladen " + java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(java.time.Instant.ofEpochMilli(it.fetchedAt).atZone(java.time.ZoneId.systemDefault())) } ?: " wird geladen …") else null,
+                    if (showLightning) "Blitze: letzte Minuten (Europa, Afrika, Atlantik)" else null,
+                    "Quelle: © EUMETSAT",
+                ).joinToString("\n"), style = WType.bodyDim)
                 // Mit Regen zusätzlich die Legende der Fläche darunter
                 if (showRain && showTemp) Legend(listOf(-10, 0, 10, 18, 25, 32).map { "$it°" to de.schee.wetter.ui.main.Timeline.tempColor(it.toDouble()) })
                 else if (showRain && showWind) Legend(listOf(0, 10, 20, 35, 50, 70).map { "$it" to Color(windColor(it.toDouble())) })
@@ -279,7 +298,7 @@ private fun previewTransform(w: Float, h: Float): MapTransform {
 }
 
 @Composable
-private fun PreviewMap(base: Bitmap, overlay: Bitmap?, grids: List<Pair<WindGrid, Bitmap>>, t: MapTransform) {
+private fun PreviewMap(base: Bitmap, overlay: Bitmap?, grids: List<Pair<WindGrid, Bitmap>>, t: MapTransform, clouds: de.schee.wetter.data.Satellite.View? = null) {
     Box(Modifier.fillMaxSize()) {
         for ((wind, bmp) in grids) {
             val img = remember(bmp) { bmp.asImageBitmap() }
@@ -291,6 +310,13 @@ private fun PreviewMap(base: Bitmap, overlay: Bitmap?, grids: List<Pair<WindGrid
             }
         }
         Image(base.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        clouds?.let { c ->
+            val img = remember(c) { c.bitmap.asImageBitmap() }
+            Canvas(Modifier.fillMaxSize()) {
+                val l = t.x(c.west); val r = t.x(c.east); val top = t.y(c.north); val b = t.y(c.south)
+                drawImage(img, dstOffset = IntOffset(l.toInt(), top.toInt()), dstSize = androidx.compose.ui.unit.IntSize((r - l).toInt(), (b - top).toInt()), alpha = .95f)
+            }
+        }
         overlay?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize().background(Color.Transparent), contentScale = ContentScale.Fit, alpha = .9f) }
     }
 }
@@ -778,6 +804,22 @@ private fun ToggleButton(on: Boolean, onClick: () -> Unit, content: @Composable 
         moveTo(s * .08f, s * .76f); lineTo(s * .55f, s * .76f)
         quadraticTo(s * .7f, s * .76f, s * .7f, s * .86f); quadraticTo(s * .7f, s * .96f, s * .58f, s * .96f)
     }, Color.White, style = st)
+}
+
+/** Wolke. */
+@Composable private fun CloudGlyph() = Canvas(Modifier.size(22.dp)) {
+    val s = size.width
+    drawCircle(Color.White, s * .2f, Offset(s * .34f, s * .52f)); drawCircle(Color.White, s * .27f, Offset(s * .58f, s * .44f))
+    drawRoundRect(Color.White, Offset(s * .1f, s * .5f), androidx.compose.ui.geometry.Size(s * .8f, s * .24f), androidx.compose.ui.geometry.CornerRadius(s * .12f))
+}
+
+/** Blitz. */
+@Composable private fun BoltGlyph() = Canvas(Modifier.size(22.dp)) {
+    val s = size.width
+    val p = androidx.compose.ui.graphics.Path().apply {
+        moveTo(s * .6f, s * .04f); lineTo(s * .2f, s * .56f); lineTo(s * .47f, s * .56f); lineTo(s * .38f, s * .96f); lineTo(s * .8f, s * .4f); lineTo(s * .53f, s * .4f); close()
+    }
+    drawPath(p, Color.White)
 }
 
 /** Thermometer. */

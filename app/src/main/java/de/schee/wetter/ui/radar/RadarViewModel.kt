@@ -45,6 +45,7 @@ class RadarViewModel : ViewModel() {
         private var cache: RadarUi? = null
         private var cacheAt = 0L
         private var windAt = 0L
+        private var cloudCache: de.schee.wetter.data.Satellite.View? = null
     }
 
     fun load() {
@@ -140,12 +141,37 @@ class RadarViewModel : ViewModel() {
         }
     }
 
+    // ---------------------------------------------------------------- Wolken (Satellit)
+
+    private val _clouds = MutableStateFlow(cloudCache)
+    /** Wolkenbild des Ausschnitts (EUMETSAT), null = noch nicht geladen. */
+    val clouds: StateFlow<de.schee.wetter.data.Satellite.View?> = _clouds
+    private var cloudJob: Job? = null
+
+    /** Wolken für den sichtbaren Ausschnitt laden – wenn er nicht abgedeckt, zu grob oder älter als 10 Minuten ist. */
+    fun ensureClouds(south: Double, north: Double, west: Double, east: Double) {
+        val c = _clouds.value
+        val fresh = c != null && System.currentTimeMillis() - c.fetchedAt < 10 * 60_000
+        // zu grob: Ausschnitt ist viel kleiner als das Bild (nach starkem Hineinzoomen)
+        val sharp = c != null && (east - west) * 4 > (c.east - c.west)
+        if (fresh && sharp && c!!.covers(south.coerceAtLeast(-85.0), north.coerceAtMost(85.0), west.coerceAtLeast(-180.0), east.coerceAtMost(180.0))) return
+        cloudJob?.cancel()
+        cloudJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(300)
+            val a = de.schee.wetter.data.Satellite.area(south, north, west, east)
+            val r = withContext(Dispatchers.IO) { runCatching { de.schee.wetter.data.Satellite.clouds(a[0], a[1], a[2], a[3]) } }
+            r.onSuccess { _clouds.value = it; cloudCache = it }
+            r.onFailure { if (it !is kotlinx.coroutines.CancellationException) AppLog.data("Wolken: ${it.message}") }
+        }
+    }
+
     /** Beim Verlassen des Bildschirms oder der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
         if (job?.isActive == true) { job?.cancel(); _ui.value = RadarUi(wind = _ui.value.wind) }
-        windJob?.cancel(); viewJob?.cancel()
+        windJob?.cancel(); viewJob?.cancel(); cloudJob?.cancel()
     }
 
     /** Für die Testbilder am PC. */
     fun preview(ui: RadarUi) { _ui.value = ui }
+    fun previewClouds(v: de.schee.wetter.data.Satellite.View?) { _clouds.value = v }
 }

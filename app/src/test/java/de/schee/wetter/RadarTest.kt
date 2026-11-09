@@ -73,4 +73,18 @@ class RadarTest {
         assertTrue(hypot(out[0], out[1]) in 0.0..150.0)
         assertEquals(0, g.hourIndex(Instant.parse("2000-01-01T00:00:00Z")))
     }
+
+    @Test fun satellite() {
+        // Blitze: 20 Minuten zurück, auf 5 Minuten abgerundet
+        assertEquals(Instant.parse("2026-11-09T16:40:00Z"), de.schee.wetter.data.Satellite.lightningTime(Instant.parse("2026-11-09T17:03:41Z")))
+        // Wolken: dunkel → durchsichtig, weiß → fast deckend; MTG hat Vorrang vor der Weltkarte
+        val dark = 0xFF3C3C3C.toInt(); val white = 0xFFF0F0F0.toInt()
+        val out = de.schee.wetter.data.Satellite.cloudPixels(intArrayOf(dark, white, white), intArrayOf(0, 0, dark), 3)
+        assertEquals(0, out[0] ushr 24)
+        assertTrue((out[1] ushr 24) > 220)
+        assertEquals(0, out[2] ushr 24)
+        // Ausschnitt mit Rand, auf die Weltkarte begrenzt
+        val a = de.schee.wetter.data.Satellite.area(-80.0, 80.0, -170.0, 170.0)
+        assertEquals(-85.0, a[0], 0.0); assertEquals(180.0, a[3], 0.0)
+    }
 }

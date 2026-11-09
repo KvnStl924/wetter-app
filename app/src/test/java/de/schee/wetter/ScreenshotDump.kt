@@ -101,8 +101,9 @@ class ScreenshotDump {
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)
     @Test fun temp() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp.png")
+    @Test fun clouds() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "wolken.png", clouds = true)
 
-    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String, forecast: Boolean = false) {
+    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String, forecast: Boolean = false, clouds: Boolean = false) {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
         fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
@@ -115,10 +116,15 @@ class ScreenshotDump {
             wind = de.schee.wetter.data.WindGrid.parse(res("windgrid.json")),
             windView = de.schee.wetter.data.WindGrid.parse(res("viewgrid.json"), de.schee.wetter.data.WindGrid.Spec(22.5, -16.0, 3.5, 16, 16))))
         if (forecast) vm.preview(vm.ui.value.copy(nowIndex = frames.size - 3, bytes = vm.ui.value.bytes + (frames.size - 3 to bytes("model_de.png"))))
+        if (clouds) {
+            fun px(n: String): IntArray { val b = bytes(n); val bmp = android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size); return IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) } }
+            val out = de.schee.wetter.data.Satellite.cloudPixels(px("cloud_mumi.png"), px("cloud_mtg_fd.png"), 900 * 922)
+            vm.previewClouds(de.schee.wetter.data.Satellite.View(-5.0, 26.0, 40.0, 60.0, android.graphics.Bitmap.createBitmap(out, 900, 922, android.graphics.Bitmap.Config.ARGB_8888), System.currentTimeMillis()))
+        }
         val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f),
-            previewCities = listOf(de.schee.wetter.ui.radar.MapCity("Köln", 50.94, 6.96), de.schee.wetter.ui.radar.MapCity("Düsseldorf", 51.23, 6.78), de.schee.wetter.ui.radar.MapCity("Berlin", 52.52, 13.40), de.schee.wetter.ui.radar.MapCity("Hamburg", 53.55, 9.99), de.schee.wetter.ui.radar.MapCity("München", 48.14, 11.58), de.schee.wetter.ui.radar.MapCity("Frankfurt am Main", 50.11, 8.68))) } } }
+            previewCities = listOf(de.schee.wetter.ui.radar.MapCity("Köln", 50.94, 6.96), de.schee.wetter.ui.radar.MapCity("Düsseldorf", 51.23, 6.78), de.schee.wetter.ui.radar.MapCity("Berlin", 52.52, 13.40), de.schee.wetter.ui.radar.MapCity("Hamburg", 53.55, 9.99), de.schee.wetter.ui.radar.MapCity("München", 48.14, 11.58), de.schee.wetter.ui.radar.MapCity("Frankfurt am Main", 50.11, 8.68)), previewClouds = clouds) } } }
         settle(); Thread.sleep(500); settle()
         save(activity.window.decorView, File(target, name).also { it.parentFile?.mkdirs() })
     }

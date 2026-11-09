@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.5.2 – Wolken und Blitze im Radar
+- Neue Ebene „Wolken“: Satellitenbild (EUMETSAT) – über Europa, Afrika und dem Atlantik alle 10 Minuten, sonst weltweit alle 3 Stunden; Wolken weiß, wolkenfreie Gebiete durchsichtig
+- Neue Ebene „Blitze“: Blitze der letzten Minuten vom Satelliten MTG (Europa, Afrika, Atlantik), alle 5 Minuten neu
+- Beide lassen sich mit Regen, Wind und Temperatur kombinieren (Knöpfe rechts)
+- Fehler behoben: Regen blieb außerhalb Deutschlands sichtbar, obwohl „Regen“ abgewählt war
+
 ## 0.5.1 – Einstellungen aufgeräumt
 - Knopf „Fertig“ oben entfernt – zurück geht es mit der Zurück-Geste
 - „Hintergrund-Vorschau“ (Tag, Nacht, Nebel …) entfernt
