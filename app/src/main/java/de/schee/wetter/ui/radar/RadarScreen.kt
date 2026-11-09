@@ -171,22 +171,51 @@ fun RadarScreen(
         }
     }
 
+    // Was außerhalb Deutschlands zu sehen ist (weltweit):
+    //  - Vergangenheit/Jetzt: RainViewer-Radar (Bild bis 15 Min. vor dem gewählten Zeitpunkt)
+    //  - Zukunft: Modell-Niederschlag (Open-Meteo) aus dem Gitter des sichtbaren Ausschnitts, stündlich
+    val frame = ui.frames.getOrNull(index)
+    val rvIndex = if (layer == RadarLayer.RAIN && frame != null && frame.minutes <= 0) de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, frame.time) else null
+    val viewGrid = ui.windView
+    val viewOverlay = remember(layer, viewGrid, index, windHour, ui.wind) {
+        val g = viewGrid ?: return@remember null
+        when {
+            layer == RadarLayer.WIND -> g to windViewBitmap(g, ui.wind?.let { g.hourIndex(it.hours[windHour.coerceIn(0, it.hours.size - 1)]) } ?: windHour, ui.wind)
+            frame != null && frame.minutes > 0 -> {
+                // Open-Meteo: Menge der vorangegangenen Stunde → Stunde, in die der Zeitpunkt fällt (aufgerundet)
+                val hour = frame.time.truncatedTo(java.time.temporal.ChronoUnit.HOURS).let { if (it == frame.time) it else it.plusSeconds(3600) }
+                g to precipViewBitmap(g, g.hourIndex(hour))
+            }
+            else -> null
+        }
+    }
+    val windBase = remember(layer, ui.wind, windHour) { if (layer == RadarLayer.WIND) ui.wind?.let { it to windBitmap(it, windHour.coerceIn(0, it.hours.size - 1)) } else null }
+
+    // Nach dem Verschieben/Zoomen: Gitter für den sichtbaren Ausschnitt nachladen (außerhalb Deutschlands).
+    val tNow = transform
+    LaunchedEffect(tNow?.let { listOf(Math.round(it.south * 4), Math.round(it.north * 4), Math.round(it.west * 4), Math.round(it.east * 4)) }) {
+        if (preview != null || tNow == null) return@LaunchedEffect
+        delay(700)
+        vm.ensureView(tNow.south, tNow.north, tNow.west, tNow.east)
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0C0C0C))) {
         if (preview != null) {
             // Testbild am PC: alles ohne Hintergrund-Effekte berechnen, damit es sofort gezeichnet wird.
             transform = previewTransform(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
             val kind = ui.frames.getOrNull(index)?.kind
             val overlay = if (layer == RadarLayer.RAIN && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind) } else null
-            PreviewMap(preview, overlay, if (layer == RadarLayer.WIND) ui.wind else null, windHour, transform!!)
+            PreviewMap(preview, overlay, listOfNotNull(viewOverlay, windBase), transform!!)
         } else {
-            RadarMap(place, if (layer == RadarLayer.RAIN) shown else null, if (layer == RadarLayer.WIND) ui.wind else null, windHour,
-                center = fix?.let { it.lat to it.lon }, centerTick = centerTick) { transform = it }
+            RadarMap(place, if (layer == RadarLayer.RAIN) shown else null, if (layer == RadarLayer.RAIN) ui.rainViewer else emptyList(), rvIndex,
+                viewOverlay, windBase, center = fix?.let { it.lat to it.lon }, centerTick = centerTick) { transform = it }
         }
         val t = transform
-        if (layer == RadarLayer.WIND && t != null) ui.wind?.let { WindParticles(it, windHour, t) }
+        val field = ui.wind?.let { de.schee.wetter.data.WindField(it, ui.windView) }
+        if (layer == RadarLayer.WIND && t != null) field?.let { WindParticles(it, windHour, t) }
         val f = fix
         if (f != null && t != null) MyLocationDot(f, t)
-        if (place != null && t != null) PlaceMarker(place, t, if (layer == RadarLayer.WIND) ui.wind?.let { windLabel(it, windHour, place) } else null, f)
+        if (place != null && t != null) PlaceMarker(place, t, if (layer == RadarLayer.WIND) field?.let { windLabel(it, windHour, place) } else null, f)
 
         // Oben: Schließen, Titel, Ebenen
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -248,13 +277,13 @@ private fun previewTransform(w: Float, h: Float): MapTransform {
 }
 
 @Composable
-private fun PreviewMap(base: Bitmap, overlay: Bitmap?, wind: WindGrid?, windHour: Int, t: MapTransform) {
+private fun PreviewMap(base: Bitmap, overlay: Bitmap?, grids: List<Pair<WindGrid, Bitmap>>, t: MapTransform) {
     Box(Modifier.fillMaxSize()) {
-        if (wind != null) {
-            val img = remember(windHour) { windBitmap(wind, windHour.coerceIn(0, wind.hours.size - 1)).asImageBitmap() }
+        for ((wind, bmp) in grids) {
+            val img = remember(bmp) { bmp.asImageBitmap() }
             Canvas(Modifier.fillMaxSize()) {
-                val l = t.x(WindGrid.LON0 - WindGrid.STEP / 2); val r = t.x(WindGrid.LON1 + WindGrid.STEP / 2)
-                val top = t.y(WindGrid.LAT1 + WindGrid.STEP / 2); val b = t.y(WindGrid.LAT0 - WindGrid.STEP / 2)
+                val l = t.x(wind.lon0 - wind.step / 2); val r = t.x(wind.lon1 + wind.step / 2)
+                val top = t.y(wind.lat1 + wind.step / 2); val b = t.y(wind.lat0 - wind.step / 2)
                 drawImage(img, dstOffset = IntOffset(l.toInt(), top.toInt()), dstSize = androidx.compose.ui.unit.IntSize((r - l).toInt(), (b - top).toInt()),
                     alpha = .75f, filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
             }
@@ -305,7 +334,7 @@ private fun MyLocationDot(fix: LocationSource.Fix, t: MapTransform) {
     }
 }
 
-private fun windLabel(g: WindGrid, hour: Int, p: RadarPlace): String {
+private fun windLabel(g: de.schee.wetter.data.WindField, hour: Int, p: RadarPlace): String {
     val out = DoubleArray(2); g.at(hour.coerceIn(0, g.hours.size - 1), p.lat, p.lon, out)
     return hypot(out[0], out[1]).toInt().toString()
 }
@@ -318,13 +347,19 @@ private fun windLabel(g: WindGrid, hour: Int, p: RadarPlace): String {
  * Striche, die aus dem Bild geraten, entstehen sofort neu im sichtbaren Teil.
  */
 @Composable
-private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
+private fun WindParticles(g: de.schee.wetter.data.WindField, hour: Int, t: MapTransform) {
     val animate = LocalAnimate.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val n = 900
     // Bereich mit Winddaten, 1° vom Rand des Gitters entfernt (dort blendet die Farbfläche aus).
-    val latMin = WindGrid.LAT0 + 1; val latMax = WindGrid.LAT1 - 1; val lonMin = WindGrid.LON0 + 1; val lonMax = WindGrid.LON1 - 1
-    fun area(m: MapTransform) = doubleArrayOf(maxOf(m.south, latMin), minOf(m.north, latMax), maxOf(m.west, lonMin), minOf(m.east, lonMax))
+    // Bereich: sichtbarer Ausschnitt, begrenzt auf das Gebiet mit Daten (Deutschland-Gitter bzw. Ausschnitt-Gitter).
+    val gField by androidx.compose.runtime.rememberUpdatedState(g)
+    fun area(m: MapTransform): DoubleArray {
+        val grids = listOfNotNull(gField.base, gField.view)
+        val inset = grids.minOf { it.step }
+        return doubleArrayOf(maxOf(m.south, grids.minOf { it.lat0 } + inset), minOf(m.north, grids.maxOf { it.lat1 } - inset),
+            maxOf(m.west, grids.minOf { it.lon0 } + inset), minOf(m.east, grids.maxOf { it.lon1 } - inset))
+    }
     fun spawn(p: DoubleArray, a: DoubleArray) {
         if (a[0] >= a[1] || a[2] >= a[3]) { p[2] = 2.0; return } // nichts sichtbar
         // gleichmäßig auf dem Bildschirm verteilt (Breite über Mercator)
@@ -339,7 +374,7 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
     val tr by androidx.compose.runtime.rememberUpdatedState(t)
     val h by androidx.compose.runtime.rememberUpdatedState(hour.coerceIn(0, g.hours.size - 1))
     val density = LocalDensity.current.density
-    LaunchedEffect(g, animate) {
+    LaunchedEffect(animate) {
         if (!animate) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var last = 0L
@@ -360,7 +395,7 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
                         lastSpan = span
                     } else if (lastSpan == 0.0) lastSpan = span
                     for (p in parts) {
-                        g.at(h, p[0], p[1], w)
+                        gField.at(h, p[0], p[1], w)
                         // 1 km/h ≈ 1,2 dp pro Sekunde auf dem Bildschirm – gleich schnell bei jedem Zoom.
                         p[1] += w[0] * 1.2 * density * dt * degX
                         p[0] += w[1] * 1.2 * density * dt * degY
@@ -377,14 +412,14 @@ private fun WindParticles(g: WindGrid, hour: Int, t: MapTransform) {
         val w = DoubleArray(2)
         for (p in parts) {
             if (p[2] > 1.0) continue
-            g.at(h, p[0], p[1], w)
+            gField.at(h, p[0], p[1], w)
             val speed = hypot(w[0], w[1])
             if (speed < 0.5) continue
             val x = t.x(p[1]); val y = t.y(p[0])
             val len = (4.0 + speed * 0.25).coerceAtMost(18.0) * density
             val dx = (w[0] / speed * len).toFloat(); val dy = (-w[1] / speed * len).toFloat()
             // am Rand der Daten weich ausblenden
-            val edge = minOf(p[0] - latMin, latMax - p[0], p[1] - lonMin, lonMax - p[1]).coerceIn(0.0, 0.75) / 0.75
+            val edge = ((gField.inside(p[0], p[1]) - 0.5) / 0.75).coerceIn(0.0, 1.0)
             val a = (kotlin.math.sin(p[2] * PI) * .85 * edge).toFloat().coerceAtLeast(0f)
             drawLine(Color.White.copy(alpha = a * .75f), Offset(x - dx, y - dy), Offset(x, y), strokeWidth = 1.3f * density, cap = StrokeCap.Round)
         }
@@ -407,15 +442,47 @@ internal fun windColor(kmh: Double): Int {
 }
 
 /** Kleines Bild (1 Pixel je Gitterpunkt) mit der Windfarbe; die Karte zeichnet es weich vergrößert. */
-fun windBitmap(g: WindGrid, hour: Int): Bitmap {
-    val w = WindGrid.COLS; val h = WindGrid.ROWS
+fun windBitmap(g: WindGrid, hour: Int): Bitmap = gridBitmap(g, edgeCells = 3.0) { lat, lon, out ->
+    g.at(hour, lat, lon, out)
+    (windColor(hypot(out[0], out[1])) and 0xFFFFFF) or (0xA0 shl 24)
+}
+
+/** Wind im groben Ausschnitt-Gitter; innerhalb des feinen Deutschland-Gitters ausgeblendet (dort liegt das feine). */
+fun windViewBitmap(g: WindGrid, hour: Int, base: WindGrid?): Bitmap = gridBitmap(g, edgeCells = 1.0) { lat, lon, out ->
+    g.at(hour, lat, lon, out)
+    val keep = if (base == null) 1.0 else (1 - (base.inside(lat, lon) - base.step) / (base.step * 2)).coerceIn(0.0, 1.0)
+    (windColor(hypot(out[0], out[1])) and 0xFFFFFF) or ((0xA0 * keep).toInt() shl 24)
+}
+
+/** Modell-Niederschlag (mm/h) im groben Ausschnitt-Gitter; über Deutschland liegt das DWD-Bild, dort ausgeblendet. */
+fun precipViewBitmap(g: WindGrid, hour: Int): Bitmap = gridBitmap(g, edgeCells = 1.0) { lat, lon, _ ->
+    val mm = g.precipAt(hour, lat, lon)
+    if (mm < 0.1) return@gridBitmap 0
+    val dwd = minOf(lat - RadarData.SOUTH, RadarData.NORTH - lat, lon - RadarData.WEST, RadarData.EAST - lon)
+    val keep = (1 - dwd / 0.5).coerceIn(0.0, 1.0)
+    val a = (if (mm < 1.0) 0xB0 else 0xD8) * keep * ((mm - 0.1) / 0.3).coerceIn(0.0, 1.0)
+    (RadarData.colorFor(mm) and 0xFFFFFF) or (a.toInt() shl 24)
+}
+
+/**
+ * Zeichnet ein Gitter als Bild in Mercator-Aufteilung (gleich wie die Karte), damit es auch bei großen
+ * Ausschnitten an der richtigen Stelle liegt. [edgeCells] = Ausblenden zum Rand hin (in Gitterzellen).
+ */
+private inline fun gridBitmap(g: WindGrid, edgeCells: Double, color: (Double, Double, DoubleArray) -> Int): Bitmap {
+    val w = g.cols * 2; val h = g.rows * 2
+    val west = g.lon0 - g.step / 2; val east = g.lon1 + g.step / 2
+    val yTop = RadarData.mercY((g.lat1 + g.step / 2).coerceAtMost(85.0)); val yBot = RadarData.mercY((g.lat0 - g.step / 2).coerceAtLeast(-85.0))
     val px = IntArray(w * h)
     val out = DoubleArray(2)
-    for (r in 0 until h) for (c in 0 until w) {
-        g.at(hour, WindGrid.LAT0 + r * WindGrid.STEP, WindGrid.LON0 + c * WindGrid.STEP, out)
-        // zum Rand des Gitters hin ausblenden, damit kein hartes Viereck entsteht
-        val edge = (minOf(r, c, h - 1 - r, w - 1 - c) / 3.0).coerceIn(0.0, 1.0)
-        px[(h - 1 - r) * w + c] = (windColor(hypot(out[0], out[1])) and 0xFFFFFF) or ((0xA0 * edge).toInt() shl 24)
+    for (y in 0 until h) {
+        val my = (yTop + (y + 0.5) / h * (yBot - yTop)) * 180.0 / 20037508.34
+        val lat = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
+        for (x in 0 until w) {
+            val lon = west + (x + 0.5) / w * (east - west)
+            val c = color(lat, lon, out)
+            val edge = ((g.inside(lat, lon) + g.step / 2) / (g.step * edgeCells)).coerceIn(0.0, 1.0)
+            px[y * w + x] = ((((c ushr 24) * edge).toInt()) shl 24) or (c and 0xFFFFFF)
+        }
     }
     return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
 }
@@ -451,7 +518,7 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, onPlay: () -
             Text(
                 if (missing > 0) "Lade Radarbilder … ${ui.loaded}/${ui.frames.size}"
                 else if (ui.bytes[index] == null) "Für diesen Zeitpunkt gibt es kein Bild."
-                else "Deutscher Wetterdienst",
+                else "Radar: DWD, weltweit RainViewer · Vorhersage: DWD, weltweit Open-Meteo",
                 style = WType.bodyDim,
             )
         }

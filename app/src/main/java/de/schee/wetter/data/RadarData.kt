@@ -196,3 +196,29 @@ object RadarData {
         return false
     }
 }
+
+/**
+ * Weltweites Radar (letzte 2 Stunden bis jetzt, 10-Minuten-Schritte) von RainViewer – kostenlos,
+ * Kacheln bis Zoomstufe 7 (darüber werden sie vergrößert). Seit 2026 ohne Vorhersage („nowcast“ leer).
+ * In Deutschland liegt das genauere DWD-Radar darüber.
+ */
+object RainViewer {
+    data class Frame(val time: Instant, val tiles: String)
+
+    fun load(): List<Frame> {
+        val json = org.json.JSONObject(Http.text("RainViewer-Übersicht", "https://api.rainviewer.com/public/weather-maps.json"))
+        val host = json.getString("host")
+        val past = json.getJSONObject("radar").getJSONArray("past")
+        return (0 until past.length()).map { i ->
+            val f = past.getJSONObject(i)
+            Frame(Instant.ofEpochSecond(f.getLong("time")), "$host${f.getString("path")}/256/{z}/{x}/{y}/2/1_1.png")
+        }
+    }
+
+    /** Passendes Bild für einen Zeitpunkt der Zeitleiste: das letzte davor, höchstens 15 Minuten alt. */
+    fun indexFor(frames: List<Frame>, time: Instant): Int? {
+        var best: Int? = null
+        for (i in frames.indices) if (!frames[i].time.isAfter(time)) best = i
+        return best?.takeIf { java.time.Duration.between(frames[it].time, time).toMinutes() <= 15 }
+    }
+}

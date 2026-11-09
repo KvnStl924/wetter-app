@@ -73,8 +73,9 @@ class ScreenshotDump {
 
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
+    @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)
 
-    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String) {
+    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer, name: String, forecast: Boolean = false) {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
         fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
@@ -84,7 +85,9 @@ class ScreenshotDump {
         val now = frames.indexOfFirst { it.minutes == 0 }
         val vm = de.schee.wetter.ui.radar.RadarViewModel()
         vm.preview(de.schee.wetter.ui.radar.RadarUi(frames, frames.indices.associateWith { if (it == now || it % 3 == 0) bytes("radar_de.png") else null }.filterValues { it != null } + (now to bytes("radar_de.png")), now,
-            wind = de.schee.wetter.data.WindGrid.parse(res("windgrid.json"))))
+            wind = de.schee.wetter.data.WindGrid.parse(res("windgrid.json")),
+            windView = de.schee.wetter.data.WindGrid.parse(res("viewgrid.json"), de.schee.wetter.data.WindGrid.Spec(22.5, -16.0, 3.5, 16, 16))))
+        if (forecast) vm.preview(vm.ui.value.copy(nowIndex = frames.size - 3, bytes = vm.ui.value.bytes + (frames.size - 3 to bytes("model_de.png"))))
         val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f)) } } }

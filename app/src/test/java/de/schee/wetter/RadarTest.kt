@@ -59,7 +59,11 @@ class RadarTest {
 
     @Test fun windGrid() {
         val g = WindGrid.parse(javaClass.classLoader!!.getResource("windgrid.json")!!.readText())
-        assertEquals(567, WindGrid.ROWS * WindGrid.COLS)
+        val view = WindGrid.parse(javaClass.classLoader!!.getResource("viewgrid.json")!!.readText(), WindGrid.Spec(22.5, -16.0, 3.5, 16, 16))
+        assertTrue((0 until view.hours.size).any { h -> (0 until 16).any { r -> (0 until 16).any { c -> view.precip(h, r, c) > 0 } } })
+        val field = de.schee.wetter.data.WindField(g, view)
+        val o = DoubleArray(2); field.at(0, 40.0, -5.0, o); assertTrue(hypot(o[0], o[1]) in 0.0..200.0)
+        assertEquals(567, WindGrid.GERMANY.rows * WindGrid.GERMANY.cols)
         assertTrue(g.hours.size >= 12)
         val out = DoubleArray(2)
         g.at(0, 50.5, 7.0, out)

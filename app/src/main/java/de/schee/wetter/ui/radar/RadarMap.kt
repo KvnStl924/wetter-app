@@ -18,6 +18,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import de.schee.wetter.data.RadarData
 import de.schee.wetter.data.WindGrid
+import de.schee.wetter.data.RainViewer
 import de.schee.wetter.log.AppLog
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -44,7 +45,15 @@ private fun quad(west: Double, east: Double, south: Double, north: Double) =
  */
 @Composable
 fun RadarMap(
-    place: RadarPlace?, radar: Bitmap?, wind: WindGrid?, windHour: Int,
+    place: RadarPlace?,
+    /** DWD-Radar bzw. ICON-EU über Deutschland (eigenes, umgefärbtes Bild). */
+    radar: Bitmap?,
+    /** Weltweites Radar (RainViewer) und welches Bild gerade sichtbar ist (null = keins). */
+    rainViewer: List<RainViewer.Frame>, rvIndex: Int?,
+    /** Grobes Gitter über dem sichtbaren Ausschnitt mit fertigem Bild (Regen-Modell oder Wind). */
+    viewOverlay: Pair<WindGrid, Bitmap>?,
+    /** Feines Windgitter über Deutschland mit Bild. */
+    windBase: Pair<WindGrid, Bitmap>?,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
     onTransform: (MapTransform) -> Unit,
@@ -91,8 +100,8 @@ fun RadarMap(
                 isAttributionEnabled = true
                 setAttributionMargins(24, 0, 0, (context.resources.displayMetrics.density * 210).toInt())
             }
-            m.setMinZoomPreference(4.8); m.setMaxZoomPreference(11.5)
-            m.setLatLngBoundsForCameraTarget(LatLngBounds.from(RadarData.NORTH, RadarData.EAST, RadarData.SOUTH, RadarData.WEST))
+            // weltweit: frei verschiebbar, von der Weltkarte bis zur Stadt
+            m.setMinZoomPreference(1.5); m.setMaxZoomPreference(11.5)
             val target = place?.let { LatLng(it.lat, it.lon) } ?: LatLng(51.1, 10.4)
             m.cameraPosition = CameraPosition.Builder().target(target).zoom(if (place != null) 7.2 else 5.4).build()
             fun send() {
@@ -105,19 +114,38 @@ fun RadarMap(
                 AppLog.data("Karte geladen (${System.currentTimeMillis() - started} ms)")
                 val labels = s.layers.firstOrNull { it is SymbolLayer }?.id
                 val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-                s.addSource(ImageSource("wind", quad(
-                    WindGrid.LON0 - WindGrid.STEP / 2, WindGrid.LON1 + WindGrid.STEP / 2,
-                    WindGrid.LAT0 - WindGrid.STEP / 2, WindGrid.LAT1 + WindGrid.STEP / 2), empty))
+                val g = WindGrid.GERMANY
+                s.addSource(ImageSource("view", quad(0.0, 1.0, 0.0, 1.0), empty))
+                s.addSource(ImageSource("wind", quad(g.lon0 - g.step / 2, g.lon0 + (g.cols - 0.5) * g.step, g.lat0 - g.step / 2, g.lat0 + (g.rows - 0.5) * g.step), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
-                val windLayer = RasterLayer("wind-layer", "wind").withProperties(
-                    PropertyFactory.rasterOpacity(0.75f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
-                val radarLayer = RasterLayer("radar-layer", "radar").withProperties(
-                    PropertyFactory.rasterOpacity(0.9f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
-                if (labels != null) { s.addLayerBelow(windLayer, labels); s.addLayerBelow(radarLayer, labels) } else { s.addLayer(windLayer); s.addLayer(radarLayer) }
+                fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
+                    PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
+                // Reihenfolge von unten nach oben: Ausschnitt-Gitter, Wind Deutschland, (RainViewer), DWD-Radar, Ortsnamen
+                listOf(raster("view-layer", "view", 0.75f), raster("wind-layer", "wind", 0.75f), raster("radar-layer", "radar", 0.9f)).forEach {
+                    if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
+                }
                 style = s
                 send()
             }
         }
+    }
+
+    // RainViewer: je Zeitpunkt eine eigene Kachel-Ebene (unsichtbar vorgeladen) – Umschalten ohne Flackern.
+    LaunchedEffect(style, rainViewer) {
+        val s = style ?: return@LaunchedEffect
+        rainViewer.forEachIndexed { i, f ->
+            if (s.getSource("rv-$i") != null) return@forEachIndexed
+            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", f.tiles).apply {
+                maxZoom = 7f; attribution = "Radar weltweit: RainViewer"
+            }
+            s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 256))
+            s.addLayerBelow(RasterLayer("rv-layer-$i", "rv-$i").withProperties(
+                PropertyFactory.rasterOpacity(0f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
+        }
+    }
+    LaunchedEffect(style, rainViewer, rvIndex) {
+        val s = style ?: return@LaunchedEffect
+        rainViewer.indices.forEach { i -> s.getLayer("rv-layer-$i")?.setProperties(PropertyFactory.rasterOpacity(if (i == rvIndex) 0.8f else 0f)) }
     }
 
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.
@@ -125,8 +153,16 @@ fun RadarMap(
     LaunchedEffect(style, radar) {
         (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty)
     }
-    LaunchedEffect(style, wind, windHour) {
-        (style?.getSource("wind") as? ImageSource)?.setImage(wind?.let { windBitmap(it, windHour.coerceIn(0, it.hours.size - 1)) } ?: empty)
+    LaunchedEffect(style, windBase) {
+        (style?.getSource("wind") as? ImageSource)?.setImage(windBase?.second ?: empty)
+    }
+    LaunchedEffect(style, viewOverlay) {
+        val src = style?.getSource("view") as? ImageSource ?: return@LaunchedEffect
+        val v = viewOverlay
+        if (v == null) { src.setImage(empty); return@LaunchedEffect }
+        val g = v.first
+        src.setCoordinates(quad(g.lon0 - g.step / 2, g.lon1 + g.step / 2, (g.lat0 - g.step / 2).coerceAtLeast(-85.0), (g.lat1 + g.step / 2).coerceAtMost(85.0)))
+        src.setImage(v.second)
     }
 
     LaunchedEffect(centerTick) {

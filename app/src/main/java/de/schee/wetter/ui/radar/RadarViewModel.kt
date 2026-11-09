@@ -25,6 +25,10 @@ data class RadarUi(
     val nowIndex: Int = 0,
     val error: String? = null,
     val wind: WindGrid? = null,
+    /** Grobes Gitter über dem sichtbaren Ausschnitt (außerhalb von Deutschland). */
+    val windView: WindGrid? = null,
+    /** Weltweites Radar (RainViewer), leer wenn nicht erreichbar. */
+    val rainViewer: List<de.schee.wetter.data.RainViewer.Frame> = emptyList(),
     val windError: String? = null,
 ) {
     val loaded get() = bytes.size
@@ -46,7 +50,7 @@ class RadarViewModel : ViewModel() {
     fun load() {
         if (job?.isActive == true) return
         if (_ui.value.frames.isNotEmpty() && System.currentTimeMillis() - cacheAt < 5 * 60_000) return
-        if (_ui.value.frames.isNotEmpty()) _ui.value = RadarUi(wind = _ui.value.wind) // älter als 5 Minuten → neu laden
+        if (_ui.value.frames.isNotEmpty()) _ui.value = RadarUi(wind = _ui.value.wind, windView = _ui.value.windView) // älter als 5 Minuten → neu laden
         job = viewModelScope.launch(Dispatchers.IO) {
             val started = System.currentTimeMillis()
             // Jüngste Messung finden: geschätzte Zeit, sonst 5 bzw. 10 Minuten früher.
@@ -62,9 +66,10 @@ class RadarViewModel : ViewModel() {
                 _ui.value = _ui.value.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.")
                 return@launch
             }
+            val rv = runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
             val frames = RadarData.frames(latest)
             val nowIndex = frames.indexOfFirst { it.minutes == 0 }
-            _ui.value = RadarUi(frames, mapOf(nowIndex to nowBytes), nowIndex, wind = _ui.value.wind)
+            _ui.value = RadarUi(frames, mapOf(nowIndex to nowBytes), nowIndex, wind = _ui.value.wind, windView = _ui.value.windView, rainViewer = rv)
             // Reihenfolge: von „Jetzt“ aus abwechselnd vor und zurück, damit das Abspielen schnell beginnen kann.
             val order = frames.indices.filter { it != nowIndex }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
             val gate = Semaphore(4)
@@ -88,7 +93,7 @@ class RadarViewModel : ViewModel() {
         if (windJob?.isActive == true) return
         if (_ui.value.wind != null && System.currentTimeMillis() - windAt < 30 * 60_000) return
         windJob = viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load() } }
+            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(WindGrid.GERMANY, "Open-Meteo Windgitter Deutschland") } }
             _ui.value = r.fold(
                 { windAt = System.currentTimeMillis(); _ui.value.copy(wind = it, windError = null) },
                 { _ui.value.copy(windError = "Winddaten gerade nicht erreichbar.") },
@@ -97,10 +102,29 @@ class RadarViewModel : ViewModel() {
         }
     }
 
+    private var viewJob: Job? = null
+
+    /**
+     * Sichtbarer Ausschnitt nach dem Verschieben/Zoomen: Liegt er (teilweise) außerhalb des Deutschland-Gitters,
+     * wird ein grobes Gitter für genau diesen Ausschnitt geladen (16 × 16 Punkte, echte Werte).
+     */
+    fun ensureView(south: Double, north: Double, west: Double, east: Double) {
+        val g = WindGrid.GERMANY
+        if (south >= g.lat0 && north <= g.lat0 + (g.rows - 1) * g.step && west >= g.lon0 && east <= g.lon0 + (g.cols - 1) * g.step) return
+        val span = maxOf(north - south, east - west)
+        _ui.value.windView?.let { v -> if (v.covers(south, north, west, east) && v.step <= span / 6) return }
+        if (viewJob?.isActive == true) viewJob?.cancel()
+        viewJob = viewModelScope.launch {
+            val spec = WindGrid.viewSpec(south, north, west, east)
+            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Wind + Regen)") } }
+            r.onSuccess { _ui.value = _ui.value.copy(windView = it) }
+        }
+    }
+
     /** Beim Verlassen des Bildschirms oder der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
         if (job?.isActive == true) { job?.cancel(); _ui.value = RadarUi(wind = _ui.value.wind) }
-        windJob?.cancel()
+        windJob?.cancel(); viewJob?.cancel()
     }
 
     /** Für die Testbilder am PC. */

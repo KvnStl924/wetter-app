@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.4.4 – Radar und Wind weltweit
+- Karte frei verschiebbar und zoombar, von der Weltkarte bis zur Stadt
+- Regen weltweit: letzte 2 Stunden bis jetzt über RainViewer (10-Minuten-Schritte); in Deutschland weiterhin das genauere DWD-Radar
+- Regen-Vorhersage außerhalb Deutschlands: Modell von Open-Meteo, stündlich bis +12 Stunden
+- Wind weltweit mit echten Werten: Für den sichtbaren Ausschnitt lädt die App nach dem Verschieben oder Zoomen ein passendes Gitter nach
+
 ## 0.4.3 – Windlinien beim Zoomen
 - Beim schnellen Heraus- oder Hineinzoomen werden die Windlinien sofort über den ganzen sichtbaren Bereich verteilt, statt im alten Ausschnitt hängen zu bleiben
 
