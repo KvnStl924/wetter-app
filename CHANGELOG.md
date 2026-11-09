@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.4 – Mehr Städte, kleinere Werte
+- Deutlich mehr Städte mit Wert: die App liest die Orte direkt aus den Kartendaten (bis 0.6.3 fehlten sie, sobald Werte gezeigt wurden)
+- Jede gezeigte Stadt hat einen Wert; beim Hineinzoomen kommen Kleinstädte und Dörfer dazu
+- Wert-Pillen deutlich kleiner, Zahl sauber mittig
+
 ## 0.6.3 – Neue Beschriftung im Radar
 - Städte wie bei Sky Radar: Name weiß und fett, darunter der Wert in einer Pille mit Rand und Zahl in der passenden Farbe (kalt blau, warm orange)
 - Hotspots zeigen nur die Pille; die grauen Ortsnamen der Karte werden dann ausgeblendet, damit nichts doppelt steht

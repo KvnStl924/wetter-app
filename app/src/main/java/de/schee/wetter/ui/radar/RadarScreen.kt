@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -567,8 +568,8 @@ internal fun rememberLabels(
         }
         place?.let { p -> val x = idle.x(p.lon); val y = idle.y(p.lat); if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); pts += x to y } }
         fix?.let { pts += idle.x(it.lon) to idle.y(it.lat) }
-        val minDist = if (mini) 62f else 84f
-        for (c in cities.filter { it.fromMap }.sortedBy { it.rank }.take(60)) add(L(c.lat, c.lon, c.name, 1), minDist)
+        val minDist = if (mini) 52f else 62f
+        for (c in cities.filter { it.fromMap }.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 1), minDist)
         // Weltliste: nur, wo die Karte selbst keinen Ort beschriftet
         val mapNames = cities.map { it.name }.toSet()
         for (c in WorldCities.ALL.sortedBy { it.rank }) if (c.name !in mapNames) add(L(c.lat, c.lon, c.name, 3), minDist + 6)
@@ -628,7 +629,7 @@ internal fun rememberLabels(
 private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
     val density = LocalDensity.current.density
     val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .9f), Offset(0f, 1.5f), 5f)
-    val nameStyle = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow, fontSize = WType.small.fontSize * 0.95f)
+    val nameStyle = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow, fontSize = 12.5.sp)
     for (l in labels) {
         val x = t.x(l.lon); val y = t.y(l.lat)
         if (!t.visible(x, y, 40f)) continue
@@ -647,14 +648,13 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
         }
         androidx.compose.ui.layout.Layout(content = {
             if (l.name != null && l.kind != 0) Text(l.name, style = nameStyle)
-            if (l.value != null && pill != null) Text(l.value, style = WType.small.copy(fontWeight = FontWeight.Bold, color = pill),
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xD9141A24)).border(1.6.dp, pill, RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 1.dp))
+            if (l.value != null && l.color != null) { val img = remember(l.value, l.color) { pillBitmap(l.value, l.color, density).asImageBitmap() }; Image(img, null) }
         }) { ms, c ->
             val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
             layout(t.w.toInt(), t.h.toInt()) {
                 var i = 0
                 if (l.name != null && l.kind != 0) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - 4 * density).toInt()) }
-                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + 5 * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
+                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + 4 * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
             }
         }
     }

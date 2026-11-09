@@ -55,37 +55,45 @@ internal fun pillColor(c: Int): Int {
     return (255 shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
 }
 
-/** Name des Pillen-Bilds für eine Farbe (vergröbert, damit nicht zu viele Bilder entstehen). */
-private fun pillName(c: Int) = "pill_%06x".format(pillColor(c) and 0xF0F0F0)
+/** Name des fertigen Wert-Bilds (Pille mit Zahl) für Text und Farbe. */
+private fun pillName(c: Int, text: String) = "v_%06x_%s".format(pillColor(c) and 0xFFFFFF, text)
 
 private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
     Feature.fromGeometry(Point.fromLngLat(l.lon, l.lat)).apply {
         addNumberProperty("kind", l.kind)
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
-        l.color?.let { addStringProperty("pill", pillName(it)); addStringProperty("tcolor", "#%06x".format(pillColor(it) and 0xFFFFFF)) }
+        if (l.color != null && l.value != null) addStringProperty("pill", pillName(l.color, l.value))
     }
 })
 
 /**
- * Pille (abgerundetes Rechteck) als dehnbares Bild: dunkel gefüllt, Rand in der Wertfarbe.
- * Die Mitte dehnt sich mit der Textbreite, die runden Enden bleiben rund.
+ * Fertiges kleines Bild für einen Wert: Pille (dunkel, Rand in der Wertfarbe) mit der Zahl mittig in derselben Farbe.
+ * Klein wie bei Sky Radar (Kevin am 09.11.2026: „Zahlen und Hintergrund viel zu groß“).
  */
-private fun ensurePill(s: Style, c: Int, density: Float) {
-    val name = pillName(c)
-    if (s.getImage(name) != null) return
-    val h = (24 * density).toInt(); val w = h * 2; val r = h / 2f
-    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+internal fun pillBitmap(text: String, c: Int, density: Float): Bitmap {
+    val col = pillColor(c)
+    val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = col; textSize = 11.5f * density; typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    }
+    val tw = tp.measureText(text)
+    val h = 17f * density; val padX = 6.5f * density; val stroke = 1.2f * density
+    val w = tw + 2 * padX
+    val bmp = Bitmap.createBitmap(Math.ceil(w.toDouble()).toInt(), Math.ceil(h.toDouble()).toInt(), Bitmap.Config.ARGB_8888)
     val cv = android.graphics.Canvas(bmp)
-    val stroke = 1.6f * density
     val rect = android.graphics.RectF(stroke / 2, stroke / 2, w - stroke / 2, h - stroke / 2)
-    cv.drawRoundRect(rect, r, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xD9141A24.toInt() })
-    cv.drawRoundRect(rect, r, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        color = pillColor(c) and 0xF0F0F0 or (0xFF shl 24); style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xE0121821.toInt() })
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = col; style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke
     })
-    s.addImage(name, bmp, false,
-        listOf(org.maplibre.android.maps.ImageStretches(r, w - r)), listOf(org.maplibre.android.maps.ImageStretches(r - 1, r + 1)),
-        org.maplibre.android.maps.ImageContent(r * 0.75f, 2f, w - r * 0.75f, h - 2f))
+    val fm = tp.fontMetrics
+    cv.drawText(text, padX, h / 2 - (fm.ascent + fm.descent) / 2, tp)
+    return bmp
+}
+
+private fun ensurePill(s: Style, text: String, c: Int, density: Float) {
+    val name = pillName(c, text)
+    if (s.getImage(name) == null) s.addImage(name, pillBitmap(text, c, density))
 }
 
 /**
@@ -141,25 +149,17 @@ private fun addOverlayLayers(s: Style) {
     ).withFilter(Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3)))))
     s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
         PropertyFactory.textField(Expression.get("name")),
-        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(13.5f),
-        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textHaloBlur(.4f),
-        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.4f)),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.4f), PropertyFactory.textHaloBlur(.4f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.35f)),
         PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
     ).withFilter(Expression.all(Expression.has("name"), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
-        PropertyFactory.textField(Expression.get("value")),
-        PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-        PropertyFactory.textSize(Expression.match(kind, Expression.literal(13.5f), Expression.stop(2, Expression.literal(15f)))),
-        PropertyFactory.textColor(Expression.toColor(Expression.get("tcolor"))),
         PropertyFactory.iconImage(Expression.get("pill")),
-        PropertyFactory.iconTextFit(Property.ICON_TEXT_FIT_BOTH), PropertyFactory.iconTextFitPadding(arrayOf(2f, 9f, 2f, 9f)),
-        PropertyFactory.textAnchor(Expression.match(kind, Expression.literal(Property.TEXT_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.TEXT_ANCHOR_CENTER)))),
         PropertyFactory.iconAnchor(Expression.match(kind, Expression.literal(Property.ICON_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
-        PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 0.55f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
-        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 5f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
-        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 4f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
         PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-    ).withFilter(Expression.all(Expression.has("value"), withPill)))
+    ).withFilter(withPill))
     // ohne Farbe (z. B. eigener Ort bei Regen): schlichter Wert über dem Punkt
     s.addLayer(SymbolLayer("lbl-plain", "labels").withProperties(
         PropertyFactory.textField(Expression.get("value")),
@@ -283,16 +283,27 @@ fun RadarMap(
             // Orte aus den Beschriftungs-Ebenen des Kartenstils (die Karte hat sie schon so verteilt, dass nichts überlappt)
             fun cities() {
                 runCatching {
-                    val rect = android.graphics.RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
-                    val layers = listOf("place_city_large", "place_city", "place_town", "place_village")
-                    val found = layers.flatMapIndexed { li, layer ->
-                        m.queryRenderedFeatures(rect, layer).mapNotNull { f ->
-                            val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
-                            val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
-                            val rank = if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 20
-                            MapCity(name, p.latitude(), p.longitude(), li * 100 + rank, fromMap = true)
-                        }
-                    }.sortedBy { it.rank }.distinctBy { it.name }
+                    // Orte direkt aus den Kartendaten lesen – nicht aus den gezeichneten Namen: die blendet die App
+                    // aus, sobald sie eigene Werte zeigt (sonst fehlten die Städte, Fehler in 0.6.3)
+                    val st = m.style ?: return@runCatching
+                    val srcId = (st.getLayer("place_city") as? SymbolLayer)?.sourceId ?: "openmaptiles"
+                    val vs = st.getSourceAs<org.maplibre.android.style.sources.VectorSource>(srcId) ?: return@runCatching
+                    val zoom = m.cameraPosition.zoom
+                    val classes = listOfNotNull("city", "town".takeIf { zoom >= 5.5 }, "village".takeIf { zoom >= 8.5 })
+                    val filter = Expression.match(Expression.get("class"), Expression.literal(false), *classes.map { Expression.stop(it, true) }.toTypedArray())
+                    val w = view.width.toFloat(); val h = view.height.toFloat()
+                    val found = vs.querySourceFeatures(arrayOf("place"), filter).mapNotNull { f ->
+                        val p = f.geometry() as? org.maplibre.geojson.Point ?: return@mapNotNull null
+                        val sp = m.projection.toScreenLocation(LatLng(p.latitude(), p.longitude()))
+                        if (sp.x < 0 || sp.y < 0 || sp.x > w || sp.y > h) return@mapNotNull null
+                        val name = (if (f.hasProperty("name:de")) f.getStringProperty("name:de") else null) ?: (if (f.hasProperty("name")) f.getStringProperty("name") else null) ?: return@mapNotNull null
+                        val cls = if (f.hasProperty("class")) f.getStringProperty("class") else "city"
+                        val rank = if (f.hasProperty("rank")) f.getNumberProperty("rank").toInt() else 20
+                        val capital = if (f.hasProperty("capital")) f.getNumberProperty("capital").toInt() else 0
+                        // Reihenfolge: Hauptstädte, große Städte, Städte, Kleinstädte, Dörfer
+                        val prio = when (cls) { "city" -> 0; "town" -> 100; else -> 200 } + rank - (if (capital in 1..2) 5 else 0)
+                        MapCity(name, p.latitude(), p.longitude(), prio, fromMap = true)
+                    }.sortedBy { it.rank }.distinctBy { it.name }.take(400)
                     reportCities(found, current())
                 }
             }
@@ -376,7 +387,7 @@ fun RadarMap(
     val density = context.resources.displayMetrics.density
     LaunchedEffect(style, labels) {
         val s = style ?: return@LaunchedEffect
-        labels.mapNotNull { it.color }.distinctBy { pillName(it) }.forEach { ensurePill(s, it, density) }
+        labels.forEach { l -> if (l.color != null && l.value != null) ensurePill(s, l.value, l.color, density) }
         (s.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels))
         // Werte mit Pille zeigen den Namen selbst → graue Ortsnamen der Karte ausblenden (bleiben abfragbar)
         val own = labels.any { it.color != null }
