@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -566,7 +567,7 @@ internal fun rememberLabels(
         }
         place?.let { p -> val x = idle.x(p.lon); val y = idle.y(p.lat); if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); pts += x to y } }
         fix?.let { pts += idle.x(it.lon) to idle.y(it.lat) }
-        val minDist = if (mini) 56f else 70f
+        val minDist = if (mini) 62f else 84f
         for (c in cities.filter { it.fromMap }.sortedBy { it.rank }.take(60)) add(L(c.lat, c.lon, c.name, 1), minDist)
         // Weltliste: nur, wo die Karte selbst keinen Ort beschriftet
         val mapNames = cities.map { it.name }.toSet()
@@ -608,48 +609,53 @@ internal fun rememberLabels(
     return remember(chosen, ww, temp, place) {
         val o = DoubleArray(2)
         chosen.mapNotNull { l ->
+            var color: Int? = null
             val value: String? = when {
-                ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { "${units.tNum(it)}°" }
-                ww != null -> { ww.windAt(l.lat, l.lon, o); "${units.wNum(hypot(o[0], o[1]))} ${units.windLabel}" }
+                ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { color = tempColorMap(it); "${units.tNum(it)}°" }
+                ww != null -> { ww.windAt(l.lat, l.lon, o); val k = hypot(o[0], o[1]); color = windColor(k); "${units.wNum(k)} ${units.windLabel}" }
                 l.kind == 2 -> place?.tempLabel
                 else -> null
             }
-            if (value == null && l.kind != 3) null else MapLabel(l.lat, l.lon, value, l.name, l.kind)
+            // eigener Ort: Name ohne Zusatz („Saffig · Rheinland-Pfalz …“ → „Saffig“)
+            val name = if (l.kind == 2) place?.name?.substringBefore(" · ")?.takeIf { color != null } else l.name
+            if (value == null && l.kind != 3) null else MapLabel(l.lat, l.lon, value, name, l.kind, color)
         }
     }
 }
 
-/** Nur für die Testbilder am PC (dort läuft MapLibre nicht): dieselben Werte mit Compose gezeichnet. */
+/** Nur für die Testbilder am PC (dort läuft MapLibre nicht): dieselbe Beschriftung mit Compose gezeichnet. */
 @Composable
 private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
     val density = LocalDensity.current.density
-    val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .85f), Offset(0f, 1.5f), 6f)
-    val big = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow)
-    val nameStyle = WType.label.copy(color = Color(0xFFC9CDD3), fontWeight = FontWeight.SemiBold, shadow = shadow)
+    val shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .9f), Offset(0f, 1.5f), 5f)
+    val nameStyle = WType.small.copy(fontWeight = FontWeight.Bold, shadow = shadow, fontSize = WType.small.fontSize * 0.95f)
     for (l in labels) {
         val x = t.x(l.lon); val y = t.y(l.lat)
         if (!t.visible(x, y, 40f)) continue
-        if (l.kind != 1) Canvas(Modifier.fillMaxSize()) {
-            when (l.kind) {
-                2 -> { drawCircle(Color.White, 3.5.dp.toPx(), Offset(x, y)); drawCircle(Color.Black.copy(alpha = .6f), 3.5.dp.toPx(), Offset(x, y), style = Stroke(1f)) }
-                3 -> drawCircle(Color(0xFFE6E8EB), 2.4.dp.toPx(), Offset(x, y))
-                else -> drawCircle(Color.White.copy(alpha = .55f), 1.8.dp.toPx(), Offset(x, y))
+        val pill = l.color?.let { Color(pillColor(it)) }
+        if (pill == null && l.kind != 3) {
+            // schlichter Wert (z. B. eigener Ort bei Regen)
+            androidx.compose.ui.layout.Layout(content = { Text(l.value ?: "", style = nameStyle) }) { m, c ->
+                val p = m.first().measure(c.copy(minWidth = 0, minHeight = 0))
+                layout(p.width, p.height) { p.place((x - p.width / 2).toInt(), (y - p.height - 6 * density).toInt()) }
             }
+            continue
+        }
+        if (l.kind != 0) Canvas(Modifier.fillMaxSize()) {
+            drawCircle(Color(0xFFF2F3F5), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y))
+            drawCircle(Color.Black.copy(alpha = .6f), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y), style = Stroke(1f))
         }
         androidx.compose.ui.layout.Layout(content = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (l.value != null) Text(l.value, style = if (l.kind == 2) big.copy(fontSize = big.fontSize * 1.12f) else big)
-                if (l.kind == 3) Text(l.name ?: "", style = nameStyle)
+            if (l.name != null && l.kind != 0) Text(l.name, style = nameStyle)
+            if (l.value != null && pill != null) Text(l.value, style = WType.small.copy(fontWeight = FontWeight.Bold, color = pill),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xD9141A24)).border(1.6.dp, pill, RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 1.dp))
+        }) { ms, c ->
+            val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
+            layout(t.w.toInt(), t.h.toInt()) {
+                var i = 0
+                if (l.name != null && l.kind != 0) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - 4 * density).toInt()) }
+                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + 5 * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
             }
-        }) { m, c ->
-            val p = m.first().measure(c.copy(minWidth = 0, minHeight = 0))
-            val top = when (l.kind) {
-                1 -> y - p.height - 9 * density
-                3 -> if (l.value != null) y - p.height / 2f - 2 * density else y + 5 * density
-                2 -> y - p.height - 6 * density
-                else -> y - p.height - 3 * density
-            }
-            layout(p.width, p.height) { p.place((x - p.width / 2).toInt(), top.toInt()) }
         }
     }
 }

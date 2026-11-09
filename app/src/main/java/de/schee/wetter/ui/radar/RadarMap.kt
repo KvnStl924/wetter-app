@@ -47,15 +47,46 @@ private const val STYLE = "https://tiles.openfreemap.org/styles/dark"
 private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360, -Satellite.MAX_LAT, Satellite.MAX_LAT)
 
 /** Wert/Name an einem Ort. kind: 0 = Hotspot, 1 = Stadt der Karte, 2 = eigener Ort, 3 = Großstadt aus der Weltliste. */
-data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int)
+data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null)
+
+/** Farbe für Zahl und Rand der Pille: Wertfarbe, aufgehellt (gut lesbar auf dunklem Grund). */
+internal fun pillColor(c: Int): Int {
+    fun ch(s: Int) = (((c shr s) and 255) * 0.55 + 255 * 0.45).toInt().coerceIn(0, 255)
+    return (255 shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+}
+
+/** Name des Pillen-Bilds für eine Farbe (vergröbert, damit nicht zu viele Bilder entstehen). */
+private fun pillName(c: Int) = "pill_%06x".format(pillColor(c) and 0xF0F0F0)
 
 private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
     Feature.fromGeometry(Point.fromLngLat(l.lon, l.lat)).apply {
         addNumberProperty("kind", l.kind)
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
+        l.color?.let { addStringProperty("pill", pillName(it)); addStringProperty("tcolor", "#%06x".format(pillColor(it) and 0xFFFFFF)) }
     }
 })
+
+/**
+ * Pille (abgerundetes Rechteck) als dehnbares Bild: dunkel gefüllt, Rand in der Wertfarbe.
+ * Die Mitte dehnt sich mit der Textbreite, die runden Enden bleiben rund.
+ */
+private fun ensurePill(s: Style, c: Int, density: Float) {
+    val name = pillName(c)
+    if (s.getImage(name) != null) return
+    val h = (24 * density).toInt(); val w = h * 2; val r = h / 2f
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val stroke = 1.6f * density
+    val rect = android.graphics.RectF(stroke / 2, stroke / 2, w - stroke / 2, h - stroke / 2)
+    cv.drawRoundRect(rect, r, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xD9141A24.toInt() })
+    cv.drawRoundRect(rect, r, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = pillColor(c) and 0xF0F0F0 or (0xFF shl 24); style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke
+    })
+    s.addImage(name, bmp, false,
+        listOf(org.maplibre.android.maps.ImageStretches(r, w - r)), listOf(org.maplibre.android.maps.ImageStretches(r - 1, r + 1)),
+        org.maplibre.android.maps.ImageContent(r * 0.75f, 2f, w - r * 0.75f, h - 2f))
+}
 
 /**
  * Blitze → Punkte mit Alters-Stufe (0 = neu < 10 Min., 1 = < 25, 2 = < 45, 3 = älter), Größe nach Stärke,
@@ -99,30 +130,44 @@ private fun addOverlayLayers(s: Style) {
         PropertyFactory.circleRadius(14f), PropertyFactory.circleColor("rgba(0,0,0,0)"),
         PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(1.4f), PropertyFactory.circleStrokeOpacity(.5f),
     ).withFilter(Expression.eq(Expression.get("ring"), Expression.literal(1))))
-    // Beschriftung: Punkt (eigener Ort weiß mit Rand, Weltliste hell, Hotspot klein), Wert darüber, Name darunter
+    // Beschriftung wie bei Sky Radar (Kevin am 09.11.2026): kleiner Punkt am Ort, Name weiß und fett darüber,
+    // Wert darunter in einer Pille (dunkel, Rand und Zahl in der Wertfarbe). Hotspots: nur die Pille.
     val kind = Expression.get("kind")
+    val withPill = Expression.has("pill")
     s.addLayer(org.maplibre.android.style.layers.CircleLayer("lbl-dot", "labels").withProperties(
-        PropertyFactory.circleRadius(Expression.match(kind, Expression.literal(2.4f), Expression.stop(2, Expression.literal(3.6f)), Expression.stop(0, Expression.literal(1.8f)))),
-        PropertyFactory.circleColor(Expression.match(kind, Expression.literal("#E6E8EB"), Expression.stop(0, Expression.literal("rgba(255,255,255,0.55)")))),
-        PropertyFactory.circleStrokeWidth(Expression.match(kind, Expression.literal(0f), Expression.stop(2, Expression.literal(1f)))),
-        PropertyFactory.circleStrokeColor("rgba(0,0,0,0.6)"),
-    ).withFilter(Expression.neq(kind, Expression.literal(1))))
+        PropertyFactory.circleRadius(Expression.match(kind, Expression.literal(2.6f), Expression.stop(2, Expression.literal(3.4f)))),
+        PropertyFactory.circleColor("#F2F3F5"),
+        PropertyFactory.circleStrokeWidth(1f), PropertyFactory.circleStrokeColor("rgba(0,0,0,0.6)"),
+    ).withFilter(Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3)))))
+    s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
+        PropertyFactory.textField(Expression.get("name")),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(13.5f),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textHaloBlur(.4f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.4f)),
+        PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
+    ).withFilter(Expression.all(Expression.has("name"), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
         PropertyFactory.textField(Expression.get("value")),
         PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-        PropertyFactory.textSize(Expression.match(kind, Expression.literal(14.5f), Expression.stop(2, Expression.literal(16f)))),
-        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.3f), PropertyFactory.textHaloBlur(.6f),
-        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-        PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, -0.3f)), Expression.stop(1, Expression.literal(arrayOf(0f, -0.75f))))),
+        PropertyFactory.textSize(Expression.match(kind, Expression.literal(13.5f), Expression.stop(2, Expression.literal(15f)))),
+        PropertyFactory.textColor(Expression.toColor(Expression.get("tcolor"))),
+        PropertyFactory.iconImage(Expression.get("pill")),
+        PropertyFactory.iconTextFit(Property.ICON_TEXT_FIT_BOTH), PropertyFactory.iconTextFitPadding(arrayOf(2f, 9f, 2f, 9f)),
+        PropertyFactory.textAnchor(Expression.match(kind, Expression.literal(Property.TEXT_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.TEXT_ANCHOR_CENTER)))),
+        PropertyFactory.iconAnchor(Expression.match(kind, Expression.literal(Property.ICON_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
+        PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 0.55f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
+        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 5f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))))),
         PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
-    ).withFilter(Expression.has("value")))
-    s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
-        PropertyFactory.textField(Expression.get("name")),
-        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
-        PropertyFactory.textColor("#C9CDD3"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.2f),
-        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.45f)),
+        PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+    ).withFilter(Expression.all(Expression.has("value"), withPill)))
+    // ohne Farbe (z. B. eigener Ort bei Regen): schlichter Wert über dem Punkt
+    s.addLayer(SymbolLayer("lbl-plain", "labels").withProperties(
+        PropertyFactory.textField(Expression.get("value")),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(15f),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.85)"), PropertyFactory.textHaloWidth(1.3f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM), PropertyFactory.textOffset(arrayOf(0f, -0.3f)),
         PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true),
-    ).withFilter(Expression.all(Expression.eq(kind, Expression.literal(3)), Expression.has("name"))))
+    ).withFilter(Expression.all(Expression.has("value"), Expression.not(withPill))))
 }
 
 private fun quad(west: Double, east: Double, south: Double, north: Double) =
@@ -328,7 +373,17 @@ fun RadarMap(
         s.getLayer("water-veil")?.setProperties(vis(field != null && !fieldLandOnly))
     }
     LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
-    LaunchedEffect(style, labels) { (style?.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels)) }
+    val density = context.resources.displayMetrics.density
+    LaunchedEffect(style, labels) {
+        val s = style ?: return@LaunchedEffect
+        labels.mapNotNull { it.color }.distinctBy { pillName(it) }.forEach { ensurePill(s, it, density) }
+        (s.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels))
+        // Werte mit Pille zeigen den Namen selbst → graue Ortsnamen der Karte ausblenden (bleiben abfragbar)
+        val own = labels.any { it.color != null }
+        listOf("place_city_large", "place_city", "place_town", "place_village").forEach {
+            s.getLayer(it)?.setProperties(PropertyFactory.textOpacity(if (own) 0f else 1f), PropertyFactory.iconOpacity(if (own) 0f else 0.7f))
+        }
+    }
     LaunchedEffect(style, strikes, strikesNewest) { (style?.getSource("strikes") as? GeoJsonSource)?.setGeoJson(strikeFeatures(strikes, strikesNewest)) }
     // Leuchtringe der neuesten Blitze: sanft wachsen und verblassen (nur solange der Bildschirm sichtbar ist)
     val animate = de.schee.wetter.ui.sky.LocalAnimate.current

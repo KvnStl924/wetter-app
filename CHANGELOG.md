@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.3 – Neue Beschriftung im Radar
+- Städte wie bei Sky Radar: Name weiß und fett, darunter der Wert in einer Pille mit Rand und Zahl in der passenden Farbe (kalt blau, warm orange)
+- Hotspots zeigen nur die Pille; die grauen Ortsnamen der Karte werden dann ausgeblendet, damit nichts doppelt steht
+
 ## 0.6.2 – Windkarte: Küsten sichtbar
 - Über dem Meer liegt bei Wind ein dunkler Schleier: der Wind bleibt sichtbar, Land und Meer heben sich klar ab
 
