@@ -248,7 +248,7 @@ fun RadarScreen(
             PreviewMap(preview, if (previewArea == null) overlay else null, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, transform!!)
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
-                precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null,
+                precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, fieldLandOnly = fieldKind == RadarLayer.TEMP,
                 center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
                 onCities = { c, t -> cities = c; idle = t },
                 labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest) { transform = it }

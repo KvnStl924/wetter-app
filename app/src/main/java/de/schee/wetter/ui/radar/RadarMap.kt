@@ -149,6 +149,8 @@ fun RadarMap(
     field: Bitmap?,
     /** Wolken (Weltbild, Mercator ±85°). */
     clouds: Bitmap?,
+    /** Farbfläche nur über Land (Meer bleibt frei, z. B. Temperatur) – sonst auch über dem Meer (Wind). */
+    fieldLandOnly: Boolean = false,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
     /** Orte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen), mit dem Ausschnitt dazu. */
@@ -265,11 +267,14 @@ fun RadarMap(
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
-                // Reihenfolge von unten nach oben: Temperatur/Wind, Wolken, Modell-Regen, (RainViewer), DWD-Radar, Ortsnamen
-                listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f), raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f),
-                    raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach {
-                    if (labels != null) s.addLayerBelow(it, labels) else s.addLayer(it)
-                }
+                // Farbflächen und Wolken UNTER Flüssen und Grenzen, damit die Karte lesbar bleibt (Kevin am 09.11.2026).
+                // Zwei Varianten der Farbfläche: unter dem Meer (nur Land eingefärbt) oder über dem Meer.
+                val firstLine = s.layers.firstOrNull { it.id == "waterway" || it.id.startsWith("boundary") }?.id ?: labels
+                fun below(l: RasterLayer, id: String?) { if (id != null && s.getLayer(id) != null) s.addLayerBelow(l, id) else s.addLayer(l) }
+                listOf(raster("field-land", "field", 1f), raster("field2-land", "field2", 1f)).forEach { below(it, "water") }
+                listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f), raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f)).forEach { below(it, firstLine) }
+                // Regen darüber (über Grenzen, unter Ortsnamen)
+                listOf(raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
                 addOverlayLayers(s)
                 style = s
                 send()
@@ -306,6 +311,12 @@ fun RadarMap(
     val empty = remember { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
     LaunchedEffect(style, radar) { (style?.getSource("radar") as? ImageSource)?.setImage(radar ?: empty) }
     LaunchedEffect(style, field) { listOf("field", "field2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(field ?: empty) } }
+    LaunchedEffect(style, fieldLandOnly) {
+        val s = style ?: return@LaunchedEffect
+        fun vis(on: Boolean) = PropertyFactory.visibility(if (on) Property.VISIBLE else Property.NONE)
+        listOf("field-land", "field2-land").forEach { s.getLayer(it)?.setProperties(vis(fieldLandOnly)) }
+        listOf("field-layer", "field2-layer").forEach { s.getLayer(it)?.setProperties(vis(!fieldLandOnly)) }
+    }
     LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
     LaunchedEffect(style, labels) { (style?.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels)) }
     LaunchedEffect(style, strikes, strikesNewest) { (style?.getSource("strikes") as? GeoJsonSource)?.setGeoJson(strikeFeatures(strikes, strikesNewest)) }

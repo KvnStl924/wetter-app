@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 0.6.1 – Karte unter Temperatur und Wind lesbar
+- Grenzen und Flüsse liegen jetzt über der Farbfläche (Temperatur, Wind, Wolken) – vorher verdeckt
+- Temperatur färbt nur das Land, das Meer bleibt dunkelblau (Küsten klar erkennbar); Wind weiterhin auch über dem Meer
+- Landesgrenzen etwas heller
+
 ## 0.6.0 – Feinschliff
 - Ohne Netz: kleiner Hinweis „Offline · Stand 14:05“ statt Fehlermeldung; gezeigt wird der letzte gespeicherte Stand
 - Kommt das Netz zurück, aktualisiert die App von selbst (nur solange sie offen ist)

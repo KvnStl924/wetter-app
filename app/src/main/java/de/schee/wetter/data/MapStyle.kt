@@ -16,7 +16,7 @@ object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/dark"
 
     fun load(context: Context): String? {
-        val cache = File(context.cacheDir, "map_style_dark_v2.json")
+        val cache = File(context.cacheDir, "map_style_dark_v3.json")
         if (cache.exists() && System.currentTimeMillis() - cache.lastModified() < 24 * 3600_000L) {
             return runCatching { cache.readText() }.getOrNull()
         }
@@ -54,8 +54,8 @@ object MapStyle {
                 "water" -> paint.put("fill-color", "rgb(22,28,36)")
                 "landcover_ice_shelf", "landcover_glacier" -> { paint.put("fill-color", "rgb(52,56,62)"); paint.put("fill-opacity", 0.6) }
                 "waterway" -> { paint.put("line-color", "rgb(26,33,42)"); l.put("minzoom", 7) }
-                "boundary_state" -> { paint.put("line-color", "rgb(70,75,83)"); l.put("minzoom", 5) }
-                "boundary_country_z0-4", "boundary_country_z5-" -> paint.put("line-color", "rgb(118,124,133)")
+                "boundary_state" -> { paint.put("line-color", "rgb(98,104,114)"); l.put("minzoom", 5) }
+                "boundary_country_z0-4", "boundary_country_z5-" -> paint.put("line-color", "rgb(150,156,166)")
             }
             if (id.startsWith("place_")) l.optJSONObject("layout")?.put("text-field", name)
             kept.put(l)
