@@ -3,6 +3,7 @@ package de.schee.wetter.update
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+
 /** Zustand des Update-Knopfs in den Einstellungen. */
 sealed interface UpdateUi {
     data object Idle : UpdateUi

@@ -17,6 +17,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
+
 /** Version „X.Y.Z“ als vergleichbare Zahlen. */
 data class Version(val major: Int, val minor: Int, val patch: Int) : Comparable<Version> {
     override fun compareTo(other: Version) = compareValuesBy(this, other, Version::major, Version::minor, Version::patch)

@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.IntOffset
 
+
 /**
  * Bewegungen wie bei iOS: Federn ohne Nachwippen statt starrer Zeitkurven, Einstellungen und Ortsliste schieben
  * sich von rechts herein (die Hauptseite weicht ein Stück zurück), die Karte gleitet von unten hoch.

@@ -1,5 +1,6 @@
 package de.schee.wetter.ui
 
+import androidx.compose.foundation.layout.width
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,12 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +47,9 @@ import de.schee.wetter.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** Einstellungen: Einheiten, Drive & Logging, Version/Update. */
 @Composable
@@ -77,15 +79,23 @@ fun SettingsScreen(onBack: () -> Unit) {
             Text("Einstellungen", style = WType.title, modifier = Modifier.padding(top = 12.dp))
 
             Tile("Einheiten") {
-                Text("Temperatur", style = WType.bodyDim)
-                PillRow(listOf("°C", "°F"), tempUnit, { it }, "Einheit Temperatur") {
-                    tempUnit = it; prefs.edit().putString("unit_temp", it).apply()
+                val temps = listOf("°C", "°F"); val winds = listOf("km/h", "m/s", "Bft")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Temperatur", style = WType.body, modifier = Modifier.weight(1f))
+                    Segmented(temps, temps.indexOf(tempUnit).coerceAtLeast(0), "Einheit Temperatur", Modifier.width(150.dp)) {
+                        tempUnit = temps[it]; prefs.edit().putString("unit_temp", tempUnit).apply()
+                    }
                 }
-                Text("Wind", style = WType.bodyDim)
-                PillRow(listOf("km/h", "m/s", "Bft"), windUnit, { it }, "Einheit Wind") {
-                    windUnit = it; prefs.edit().putString("unit_wind", it).apply()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Wind", style = WType.body, modifier = Modifier.weight(1f))
+                    Segmented(winds, winds.indexOf(windUnit).coerceAtLeast(0), "Einheit Wind", Modifier.width(200.dp)) {
+                        windUnit = winds[it]; prefs.edit().putString("unit_wind", windUnit).apply()
+                    }
                 }
-                Text("Niederschlag: mm", style = WType.bodyDim)
+                Row {
+                    Text("Niederschlag", style = WType.body, modifier = Modifier.weight(1f))
+                    Text("mm", style = WType.body.copy(color = WColors.TextDim))
+                }
             }
 
             // Drive & Logging nur, solange kein Ordner verbunden ist (Wunsch 09.11.)
@@ -93,7 +103,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             UpdateTile()
 
             Tile("Über") {
-                Text("Wetterdaten ab Version 0.2.0: Open-Meteo.com (CC BY 4.0) und Deutscher Wetterdienst (Open Data).", style = WType.bodyDim)
+                Text("Wetterdaten: Open-Meteo.com (CC BY 4.0) und Deutscher Wetterdienst (Open Data).", style = WType.bodyDim)
                 Text("Schrift: Inter (SIL Open Font License).", style = WType.bodyDim)
                 Text("Karte: OpenStreetMap-Mitwirkende, OpenFreeMap. Satellit: © EUMETSAT. Radar weltweit: RainViewer. Orte: GeoNames (CC BY 4.0).", style = WType.bodyDim)
             }
@@ -183,7 +193,7 @@ private fun UpdateTile() {
         when (val s = ui) {
             UpdateUi.Idle -> {
                 Text("Installiert: Version $installed", style = WType.body)
-                ActionButton("Version $installed · Nach Updates suchen", "Einstellungen → Nach Updates suchen") { check() }
+                ActionButton("Nach Updates suchen", "Einstellungen → Nach Updates suchen") { check() }
             }
             UpdateUi.Checking -> {
                 Text("Suche nach Updates …", style = WType.body)

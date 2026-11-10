@@ -8,6 +8,7 @@ import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
 import android.view.View
 
+
 /**
  * Fein abgestimmte Vibration („Premium-Haptik“, Kevin am 10.11.2026): keine einfachen Brummer, sondern die
  * kurzen, knackigen Bausteine des Vibrationsmotors (Android 11+, z. B. Samsung Galaxy S). Fehlen sie,
@@ -19,6 +20,8 @@ object Haptics {
         TICK,
         /** Zeitleiste: volle Stunde oder „Jetzt“ (etwas deutlicher). */
         HOUR,
+        /** Antippen eines Knopfes, einer Kachel oder Zeile: ganz kurz und leicht. */
+        TAP,
         /** Umschalten (Ebene, Seite, Schalter). */
         SNAP,
         /** Langes Drücken (Bearbeiten, Ort merken). */
@@ -48,6 +51,7 @@ object Haptics {
             val ok = when (kind) {
                 Kind.TICK -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_LOW_TICK, .55f) || prim(v, c, VibrationEffect.Composition.PRIMITIVE_TICK, .3f)
                 Kind.HOUR -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_TICK, .85f)
+                Kind.TAP -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_TICK, .5f)
                 Kind.SNAP -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_CLICK, .55f)
                 Kind.PRESS -> (Build.VERSION.SDK_INT >= 31 && prim(v, c, VibrationEffect.Composition.PRIMITIVE_THUD, .6f)) ||
                     prim(v, c, VibrationEffect.Composition.PRIMITIVE_CLICK, .9f)
@@ -68,6 +72,7 @@ object Haptics {
         val constant = when (kind) {
             Kind.TICK -> if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_FREQUENT_TICK else HapticFeedbackConstants.CLOCK_TICK
             Kind.HOUR -> if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_TICK else HapticFeedbackConstants.CLOCK_TICK
+            Kind.TAP -> HapticFeedbackConstants.KEYBOARD_TAP
             Kind.SNAP -> if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.TOGGLE_ON else HapticFeedbackConstants.VIRTUAL_KEY
             Kind.PRESS -> HapticFeedbackConstants.LONG_PRESS
             Kind.SUCCESS -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY

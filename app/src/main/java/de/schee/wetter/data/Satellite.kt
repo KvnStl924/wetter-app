@@ -11,6 +11,7 @@ import kotlin.math.PI
 import kotlin.math.atan
 import kotlin.math.exp
 
+
 /**
  * Satellitendaten von EUMETSAT (EUMETView, frei mit Quellenangabe „© EUMETSAT“).
  * Beides wird beim Öffnen der App einmal für die ganze Welt geladen – danach ist es beim Wischen sofort da.

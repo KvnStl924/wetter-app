@@ -9,6 +9,7 @@ import java.time.temporal.ChronoUnit
 import java.util.zip.Inflater
 import kotlin.math.floor
 
+
 /**
  * Weltweite Modellfelder des DWD (ICON global) als Rohwerte – einmal geladen, überall sofort verfügbar:
  *  - Temperatur in 2 m (°C), 0,5°-Raster

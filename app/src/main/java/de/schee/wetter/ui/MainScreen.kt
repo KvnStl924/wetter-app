@@ -41,13 +41,11 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -91,6 +89,9 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 
 /**
@@ -421,16 +422,7 @@ fun PlaceSearchField(onPick: (Place) -> Unit) {
         AppLog.tap("Ortsliste → Suche „$q“ (${results.size} Treffer)")
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedTextField(
-            value = q, onValueChange = { q = it }, singleLine = true,
-            placeholder = { Text("Nach Stadt oder Ort suchen", style = WType.bodyDim) },
-            textStyle = WType.body, modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { scope.launch { } }),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = WColors.Accent, unfocusedBorderColor = WColors.Glass, cursorColor = WColors.Accent,
-                focusedContainerColor = Color.White.copy(alpha = .06f), unfocusedContainerColor = Color.White.copy(alpha = .06f)),
-        )
+        SearchField(q, { q = it }, "Nach Stadt oder Ort suchen")
         if (searching) CircularProgressIndicator(color = WColors.Text, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
         results.forEach { p ->
             Text(p.name, style = WType.body, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -451,7 +443,7 @@ private fun BottomBar(modifier: Modifier, pageCount: Int, current: Int, gpsFirst
     ) {
         RoundButton("map", onMap)
         Row(
-            Modifier.clip(RoundedCornerShape(50)).background(WColors.Glass).clickable { onPlaces() }.padding(horizontal = 14.dp, vertical = 9.dp),
+            Modifier.pressable { onPlaces() }.clip(RoundedCornerShape(50)).background(WColors.Glass).padding(horizontal = 14.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
             val n = pageCount.coerceAtLeast(1)
@@ -467,7 +459,7 @@ private fun BottomBar(modifier: Modifier, pageCount: Int, current: Int, gpsFirst
 
 @Composable
 private fun RoundButton(glyph: String, onClick: () -> Unit) {
-    Box(Modifier.size(42.dp).clip(CircleShape).background(WColors.Glass).clickable { onClick() }, contentAlignment = Alignment.Center) {
+    Box(Modifier.pressable(scale = .88f) { onClick() }.size(42.dp).clip(CircleShape).background(WColors.Glass), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(20.dp)) {
             val s = size.minDimension / 24f
             val stroke = Stroke(width = 1.8f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -514,9 +506,9 @@ private fun RainPill(text: String) {
 @Composable
 private fun ThunderPill(text: String, near: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.padding(top = 8.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .30f))
+        Modifier.padding(top = 8.dp).pressable(onClick = onClick).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .30f))
             .then(if (near) Modifier.border(1.dp, WColors.Sun.copy(alpha = .45f), RoundedCornerShape(50)) else Modifier)
-            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 5.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Canvas(Modifier.size(9.dp, 13.dp)) {

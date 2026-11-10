@@ -2,6 +2,7 @@ package de.schee.wetter.ui.sky
 
 import kotlin.math.floor
 
+
 /** Value-Noise + fBm, identisch zur abgenommenen Vorschau (docs/hintergrund-vorschau.html). */
 object SkyNoise {
     private val p = IntArray(512).also { arr ->

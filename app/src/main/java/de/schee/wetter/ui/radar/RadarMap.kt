@@ -5,11 +5,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,6 +38,9 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import androidx.lifecycle.repeatOnLifecycle
 import kotlin.math.pow
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 private const val STYLE = "https://tiles.openfreemap.org/styles/dark"
 

@@ -8,6 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
+
 /**
  * Kartenbilder vom DWD (WMS): Kreisgrenzen als dunkle Grundkarte und das aktuelle Niederschlagsradar.
  * Ausschnitt etwa 120 × 120 km um den Ort. Das Vollbild-Radar steht in ui/radar/.

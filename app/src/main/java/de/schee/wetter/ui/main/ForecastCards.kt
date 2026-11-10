@@ -1,5 +1,6 @@
 package de.schee.wetter.ui.main
 
+import de.schee.wetter.ui.pressable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +46,7 @@ import de.schee.wetter.ui.theme.WType
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.max
+
 
 enum class Mode(val title: String, val subtitle: String) {
     TEMP("Wetterlage", "Temperatur"),
@@ -125,9 +127,9 @@ fun ModeSwitch(mode: Mode, onMode: (Mode) -> Unit) {
     ) {
         Mode.entries.forEach { m ->
             Box(
-                Modifier.size(38.dp, 28.dp).clip(RoundedCornerShape(50))
-                    .background(if (m == mode) Color.White.copy(alpha = .22f) else Color.Transparent)
-                    .clickable { AppLog.tap("Wetterlage → Umschalter „${m.title}“"); onMode(m) },
+                Modifier.pressable(scale = .9f, haptic = de.schee.wetter.ui.Haptics.Kind.SNAP) { if (m != mode) { AppLog.tap("Wetterlage → Umschalter „${m.title}“"); onMode(m) } }
+                    .size(38.dp, 28.dp).clip(RoundedCornerShape(50))
+                    .background(if (m == mode) Color.White.copy(alpha = .22f) else Color.Transparent),
                 contentAlignment = Alignment.Center,
             ) {
                 when (m) {
@@ -178,7 +180,7 @@ fun DailyCard(f: Forecast, today: LocalDate, mode: Mode, units: Units, onDay: (D
         days.forEachIndexed { i, d ->
             if (i > 0) HorizontalDivider(color = WColors.CardBorder)
             Row(
-                Modifier.fillMaxWidth().clickable { AppLog.tap("10-Tage-Liste → ${Timeline.dayLong(d.date, today)} geöffnet"); onDay(d) }.padding(vertical = 6.dp),
+                Modifier.pressable(scale = 1f, dim = .55f) { AppLog.tap("10-Tage-Liste → ${Timeline.dayLong(d.date, today)} geöffnet"); onDay(d) }.fillMaxWidth().padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.width(58.dp)) {

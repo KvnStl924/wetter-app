@@ -3,6 +3,7 @@ package de.schee.wetter.log
 import java.text.SimpleDateFormat
 import java.util.Date
 
+
 /** Reine Hilfsfunktionen ohne Android, damit sie per Unit-Test geprüft werden können. */
 object LogFormat {
     data class FileInfo(val path: String, val bytes: Long, val modified: Long)

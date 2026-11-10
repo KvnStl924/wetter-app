@@ -9,6 +9,7 @@ import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
 
+
 /**
  * Windfeld als Gitter (Open-Meteo, ICON/global, stündlich für 13 Stunden).
  *  - [GERMANY]: 1° über Deutschland und Nachbarländer (154 Punkte), beim Öffnen der Windebene

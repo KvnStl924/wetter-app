@@ -6,6 +6,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+
 /**
  * Kartenstil für das Vollbild-Radar: OpenFreeMap „dark“, aber
  *  - etwas heller (Kevin am 09.11.2026: „einen Ticken zu dunkel … soll lesbarer sein“), bleibt dunkel,

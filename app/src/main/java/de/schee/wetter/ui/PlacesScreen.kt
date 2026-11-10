@@ -29,11 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +59,9 @@ import de.schee.wetter.ui.theme.WType
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /**
  * Ortsliste (wie die iOS-Wetter-App): oben die Suche, darunter „Mein Standort“ und die gespeicherten Orte
@@ -151,11 +152,11 @@ private fun PlaceCard(
     val day = f?.days?.firstOrNull { it.date == now.toLocalDate() }
     val sky = f?.let { WeatherCodes.sky(it.current.code) }
     val isDay = f?.current?.isDay ?: true
-    val colors = when {
-        !isDay -> listOf(Color(0xFF0E1630), Color(0xFF1B2547))
-        sky == SkyWeather.CLEAR -> listOf(Color(0xFF2E6CC4), Color(0xFF4A8FE0))
-        sky == SkyWeather.RAIN || sky == SkyWeather.STORM -> listOf(Color(0xFF2E3A4C), Color(0xFF4A5668))
-        else -> listOf(Color(0xFF3D5878), Color(0xFF5C7594))
+    // Gleicher Himmel wie auf der Seite des Ortes (Tag, Dämmerung, Nacht · klar, bewölkt, Regen …), etwas aufgehellt
+    val colors = remember(sky, isDay, day?.sunrise, now.hour) {
+        val t = de.schee.wetter.data.WeatherCodes.skyTime(now, day?.sunrise, day?.sunset).let { if (!isDay && it == de.schee.wetter.ui.sky.SkyTime.DAY) de.schee.wetter.ui.sky.SkyTime.NIGHT else it }
+        val (top, bottom) = de.schee.wetter.ui.sky.SkyPalette.gradient(sky ?: SkyWeather.PARTLY, t)
+        listOf(androidx.compose.ui.graphics.lerp(top, Color.White, .07f), androidx.compose.ui.graphics.lerp(bottom, Color.White, .12f))
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (edit && onDelete != null) {
@@ -167,8 +168,7 @@ private fun PlaceCard(
             Spacer(Modifier.width(6.dp))
         }
         Row(
-            Modifier.weight(1f).height(88.dp).clip(RoundedCornerShape(18.dp)).background(Brush.horizontalGradient(colors))
-                .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick, onLongClick = onLongClick)
+            Modifier.weight(1f).pressable(scale = .97f, onLongClick = onLongClick, onClick = onClick).height(88.dp).clip(RoundedCornerShape(18.dp)).background(Brush.linearGradient(colors))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

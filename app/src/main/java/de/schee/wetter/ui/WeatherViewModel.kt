@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 
+
 data class WeatherUi(
     val place: Place? = null,
     val forecast: Forecast? = null,

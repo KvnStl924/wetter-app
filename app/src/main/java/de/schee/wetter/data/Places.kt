@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.nio.ByteBuffer
 
+
 /**
  * Orte weltweit für die Werte auf der Radarkarte: alle Orte ab etwa 1000 Einwohnern (GeoNames, CC BY 4.0),
  * mit deutschen Namen, nach Größe sortiert. Die Karte füllt den freien Platz damit immer von groß nach klein –

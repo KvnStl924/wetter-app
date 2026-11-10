@@ -16,6 +16,7 @@ import java.net.URLEncoder
 import java.time.LocalDate
 import java.util.Locale
 
+
 /** HTTP mit Protokoll: jede Abfrage landet mit Dauer und Größe im Log. */
 object Http {
     /** [log] = false für viele kleine Abrufe (Radarbilder); der Aufrufer protokolliert dann eine Zusammenfassung. */

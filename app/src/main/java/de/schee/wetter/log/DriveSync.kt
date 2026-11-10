@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import java.io.File
 import java.io.IOException
 
+
 /**
  * Google Drive über die Android-Dateiauswahl (Storage Access Framework), wie in StreetLab.
  * Der Nutzer wählt einmal den Ordner „Meine Ablage › Apps › Wetter-App“, die App merkt sich

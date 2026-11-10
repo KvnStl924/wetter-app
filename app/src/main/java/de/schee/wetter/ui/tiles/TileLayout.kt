@@ -2,6 +2,7 @@ package de.schee.wetter.ui.tiles
 
 import android.content.Context
 
+
 /** Die 12 Kacheln. HALF = halbe Breite (zwei nebeneinander), FULL = ganze Breite. */
 enum class TileId(val title: String, val half: Boolean) {
     WARNING("Unwetterwarnung", false),

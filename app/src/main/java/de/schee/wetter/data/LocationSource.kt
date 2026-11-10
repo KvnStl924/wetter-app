@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.channels.awaitClose
 import java.util.Locale
 
+
 /** Standort nur auf Anfrage bei geöffneter App – kein Dauer-Abo, kein Hintergrund. */
 object LocationSource {
     fun hasPermission(context: Context): Boolean =

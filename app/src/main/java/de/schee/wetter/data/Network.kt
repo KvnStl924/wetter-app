@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+
 /**
  * Netz da oder nicht? Wird nur beobachtet, solange die App sichtbar ist (Aufruf aus repeatOnLifecycle) –
  * kein Hintergrund. [online] ist der letzte bekannte Stand für die Anzeige („Offline · Stand …“).

@@ -5,6 +5,7 @@ import de.schee.wetter.ui.sky.SkyTime
 import de.schee.wetter.ui.sky.SkyWeather
 import java.time.LocalDateTime
 
+
 /** WMO-Wettercodes (Open-Meteo) → Text, Symbol, Hintergrund. */
 object WeatherCodes {
     fun text(code: Int, isDay: Boolean): String = when (code) {

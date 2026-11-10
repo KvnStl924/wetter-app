@@ -12,6 +12,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+
 /**
  * Gewitter-Abstand (Kevin am 10.11.2026): „Gewitter 12 km im Südwesten · kommt näher“.
  * Blitze vom Satelliten (MTG) in voller Auflösung um den Ort; Vergleich der Blitze von vor 15–30 Minuten

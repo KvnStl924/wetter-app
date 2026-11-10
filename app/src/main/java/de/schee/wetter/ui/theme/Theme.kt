@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import de.schee.wetter.R
 
+
 /** Inter (SIL OFL) – frei nutzbarer Ersatz für Apples SF Pro. */
 val Inter = FontFamily(
     Font(R.font.inter_extralight, FontWeight.ExtraLight),

@@ -11,10 +11,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import de.schee.wetter.log.AppLog
 import de.schee.wetter.ui.MainScreen
 import de.schee.wetter.ui.WeatherViewModel
@@ -27,6 +25,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.repeatOnLifecycle
 import de.schee.wetter.ui.SettingsScreen
 import de.schee.wetter.ui.theme.WetterTheme
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

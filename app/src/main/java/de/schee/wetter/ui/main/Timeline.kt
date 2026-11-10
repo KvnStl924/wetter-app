@@ -9,6 +9,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 
+
 /** Einträge der stündlichen Leiste: Stunden plus Sonnenauf-/untergang als eigene Einträge. */
 sealed interface HourItem {
     val time: LocalDateTime

@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
+
 /**
  * Steuert, wann die App arbeitet: nur zwischen Öffnen und Verlassen.
  * Öffnen → Log starten, wartende Dateien hochladen, eigene APK nach Drive.

@@ -16,6 +16,7 @@ import de.schee.wetter.ui.theme.WColors
 import kotlin.math.cos
 import kotlin.math.sin
 
+
 /** Eigene Wetter-Symbole (bunt wie im iOS-Stil, aber selbst gezeichnet). Raster 32×32. */
 enum class IconKind { SUN, MOON, CLOUD, SUN_CLOUD, MOON_CLOUD, RAIN, STORM, SNOW, FOG, SUNRISE, SUNSET }
 

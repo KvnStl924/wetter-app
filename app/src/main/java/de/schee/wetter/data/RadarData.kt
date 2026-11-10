@@ -8,6 +8,7 @@ import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.tan
 
+
 /**
  * Regenradar für das Vollbild (Phase 4).
  *

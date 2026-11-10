@@ -1,5 +1,6 @@
 package de.schee.wetter.ui.tiles
 
+import de.schee.wetter.ui.pressable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -26,11 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +48,9 @@ import de.schee.wetter.ui.sky.LocalAnimate
 import de.schee.wetter.ui.theme.WColors
 import de.schee.wetter.ui.theme.WType
 import kotlin.math.roundToInt
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 private val Draggable = TileId.entries.filter { it != TileId.WARNING }
 
@@ -155,11 +157,10 @@ fun TileFrame(
     val haptic = de.schee.wetter.ui.rememberHaptics()
     Column(
         modifier
+            .pressable(scale = .975f, haptic = null, onLongClick = onLongClick, onClick = onClick)
             .clip(RoundedCornerShape(18.dp))
             .background(WColors.Card)
             .border(1.dp, border, RoundedCornerShape(18.dp))
-            .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick,
-                onLongClick = { haptic(de.schee.wetter.ui.Haptics.Kind.PRESS); onLongClick() })
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

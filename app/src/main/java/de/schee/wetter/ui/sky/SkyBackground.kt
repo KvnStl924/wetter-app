@@ -1,15 +1,14 @@
 package de.schee.wetter.ui.sky
 
+import androidx.compose.ui.graphics.StrokeCap
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,6 +33,9 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 enum class SkyWeather(val label: String) {
     CLEAR("Klar"), PARTLY("Teils bewölkt"), OVERCAST("Bedeckt"), RAIN("Regen"),
@@ -143,9 +145,12 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     val stars = remember { List(90) { Particle(Random.nextFloat(), Random.nextFloat() * .7f, Random.nextFloat() * 1.1f + .2f, Random.nextFloat() * 6f, 0f) } }
-    val drops = remember { List(140) { Particle(Random.nextFloat(), Random.nextFloat(), 10f + Random.nextFloat() * 14f, 7f + Random.nextFloat() * 5f, 0f) } }
-    val flakes = remember { List(90) { Particle(Random.nextFloat(), Random.nextFloat(), 1f + Random.nextFloat() * 2.2f, .4f + Random.nextFloat() * .8f, Random.nextFloat() * 6f) } }
+    // Regen in drei Tiefen (c = 0 fern … 1 nah): nahe Tropfen länger, schneller, heller – gibt Tiefe statt flacher Striche
+    val drops = remember { List(170) { val z = Random.nextFloat(); Particle(Random.nextFloat() * 1.2f, Random.nextFloat(), 0f, 0f, z * z) } }
+    val flakes = remember { List(110) { val z = Random.nextFloat(); Particle(Random.nextFloat(), Random.nextFloat(), 1f + z * 2.4f, .25f + z * .7f, Random.nextFloat() * 6f) } }
     var flash by remember { mutableFloatStateOf(0f) }
+    var nextFlash by remember { mutableFloatStateOf(3f) }
+    var lastT by remember { mutableFloatStateOf(-1f) }
 
     val animate = LocalAnimate.current
 
@@ -171,7 +176,7 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
                 val weatherNow = w
                 val needs = (SkyPalette.cloudAmount.getValue(weatherNow) > 0f) || weatherNow == SkyWeather.FOG
                 if (s.width > 0f && needs) {
-                    val vw = 110
+                    val vw = 150
                     val vh = (vw * s.height / s.width).roundToInt().coerceAtLeast(1)
                     val t = (System.nanoTime() - t0) / 1e9f
                     val bmp = withContext(Dispatchers.Default) {
@@ -195,6 +200,9 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
         size = this.size
         val wd = this.size.width; val ht = this.size.height
         val t = seconds
+        // Bewegung nach Zeit, nicht nach Bildern: auf 60- und 120-Hz-Displays gleich schnell
+        val dt = if (lastT < 0f || !animate) 0f else (t - lastT).coerceIn(0f, .05f)
+        lastT = t
         val l = lt
         val (top, bottom) = if (l != null) SkyPalette.gradient(w, l) else SkyPalette.gradient(w, tm)
         drawRect(Brush.verticalGradient(listOf(top, bottom)))
@@ -257,30 +265,42 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
             drawImage(it, srcOffset = IntOffset.Zero, srcSize = IntSize(it.width, it.height),
                 dstOffset = IntOffset.Zero, dstSize = IntSize(wd.roundToInt(), ht.roundToInt()), filterQuality = FilterQuality.High)
         }
-        // Regen
+        // Regen: klare, feine Striche mit hellem Kopf und durchsichtigem Schweif, leicht schräg im Wind
         if (w == SkyWeather.RAIN || w == SkyWeather.STORM) {
-            val c = Color(170, 200, 235).copy(alpha = .28f)
-            val scale = density / 2f
+            val heavy = if (w == SkyWeather.STORM) 1.25f else 1f
+            val slant = .16f
             drops.forEach { d ->
-                d.y += d.b * scale / ht; d.x -= d.b * .18f * scale / wd
-                if (d.y > 1f) { d.y = -d.a * scale / ht; d.x = Random.nextFloat() * 1.2f }
-                val x = d.x * wd; val y = d.y * ht; val l = d.a * scale
-                drawLine(c, Offset(x, y), Offset(x - l * .18f, y + l), strokeWidth = density * .5f)
+                val z = d.c
+                val speed = (900f + 900f * z) * density / 2.6f * heavy   // px je Sekunde
+                val len = (14f + 22f * z) * density / 2.6f * heavy
+                d.y += speed * dt / ht; d.x -= speed * slant * dt / wd
+                if (d.y * ht - len > ht || d.x < -.1f) { d.y = -Random.nextFloat() * .15f; d.x = Random.nextFloat() * 1.25f }
+                val x = d.x * wd; val y = d.y * ht
+                val tail = Offset(x + len * slant, y - len)
+                val mid = Offset(x + len * slant * .45f, y - len * .45f)
+                val a = .10f + .30f * z
+                val sw = (.55f + .75f * z) * density
+                drawLine(Color(185, 210, 240).copy(alpha = a * .35f), tail, mid, strokeWidth = sw, cap = StrokeCap.Round)
+                drawLine(Color(205, 225, 248).copy(alpha = a), mid, Offset(x, y), strokeWidth = sw, cap = StrokeCap.Round)
             }
         }
-        // Schnee
+        // Schnee: Flocken in Tiefen, sanft pendelnd
         if (w == SkyWeather.SNOW) {
-            val scale = density / 2f
             flakes.forEach { f ->
-                f.y += f.b * scale / ht; f.x += sin(t + f.c) * .35f * scale / wd
-                if (f.y > 1f) { f.y = -.01f; f.x = Random.nextFloat() }
-                drawCircle(Color(240, 244, 252).copy(alpha = .75f), f.a * scale, Offset(f.x * wd, f.y * ht))
+                val near = (f.a - 1f) / 2.4f
+                f.y += f.b * 70f * density / 2.6f * dt / ht
+                f.x += sin(t * (.6f + near * .5f) + f.c) * (14f + 18f * near) * density / 2.6f * dt / wd
+                if (f.y > 1.02f) { f.y = -.02f; f.x = Random.nextFloat() }
+                drawCircle(Color(240, 244, 252).copy(alpha = .35f + .45f * near), f.a * density / 2f, Offset(f.x * wd, f.y * ht))
             }
         }
-        // Blitz
-        if (w == SkyWeather.STORM) {
-            if (flash <= 0f && Random.nextFloat() < .006f) flash = 1f
-            if (flash > 0f) { drawRect(Color(200, 190, 255).copy(alpha = flash * .22f)); flash -= .06f }
+        // Blitz: zufällig alle paar Sekunden, doppeltes Aufflackern wie bei echtem Wetterleuchten
+        if (w == SkyWeather.STORM && animate) {
+            if (t > nextFlash) { flash = 1f; nextFlash = t + 4f + Random.nextFloat() * 9f }
+            if (flash > 0f) {
+                val k = if (flash > .55f && flash < .7f) .35f else flash
+                drawRect(Color(200, 190, 255).copy(alpha = k * .22f)); flash = (flash - dt * 3.2f).coerceAtLeast(0f)
+            }
         }
         // Lesbarkeit unten
         drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .25f), startY = ht * .55f, endY = ht),

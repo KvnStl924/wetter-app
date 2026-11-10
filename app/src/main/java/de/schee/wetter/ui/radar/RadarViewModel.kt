@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
+
 /** Zustand des Radars. Geladen wird nur bei geöffneter App (kein Hintergrund). */
 data class RadarUi(
     val frames: List<RadarData.Frame> = emptyList(),

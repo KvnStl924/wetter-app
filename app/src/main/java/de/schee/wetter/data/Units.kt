@@ -4,6 +4,7 @@ import android.content.Context
 import java.util.Locale
 import kotlin.math.roundToInt
 
+
 /** Einheiten aus den Einstellungen (Standard °C, km/h, mm). */
 class Units(val temp: String, val wind: String) {
     fun t(c: Double): String = "${tNum(c)}°"

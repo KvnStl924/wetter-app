@@ -16,10 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,23 +36,22 @@ import de.schee.wetter.ui.rememberHaptics
 import de.schee.wetter.ui.theme.WColors
 import de.schee.wetter.ui.theme.WType
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
 private fun prefs(c: Context) = c.getSharedPreferences("tiles", Context.MODE_PRIVATE)
 
 /** Bestes Zeitfenster: Auswahl der Tätigkeit (wie der iOS-Segmentschalter), Fenster heute und morgen, 24-Stunden-Leiste. */
 @Composable
 fun BestTimeContent(d: TileData, initial: BestTime.Activity? = null) {
     val context = LocalContext.current
-    val haptic = rememberHaptics()
     var act by remember {
         mutableStateOf(initial ?: runCatching { BestTime.Activity.valueOf(prefs(context).getString("bestTime", null) ?: "WALK") }.getOrDefault(BestTime.Activity.WALK))
     }
     val r = remember(d.f, d.now.hour, act) { BestTime.compute(d.f, d.now, act) }
 
-    Segmented(BestTime.Activity.entries.map { it.label }, act.ordinal) { i ->
+    de.schee.wetter.ui.Segmented(BestTime.Activity.entries.map { it.label }, act.ordinal, "Kachel Bestes Zeitfenster") { i ->
         val a = BestTime.Activity.entries[i]
-        if (a == act) return@Segmented
-        haptic(Haptics.Kind.SNAP)
-        AppLog.tap("Kachel Bestes Zeitfenster → ${a.label}")
         act = a
         prefs(context).edit().putString("bestTime", a.name).apply()
     }
@@ -82,28 +79,6 @@ fun BestTimeContent(d: TileData, initial: BestTime.Activity? = null) {
         val m = r.tomorrow
         Text(if (m != null) "Morgen: ${BestTime.span(m, d.now)}" else "Morgen: ${BestTime.noneText(r.tomorrowReason).replaceFirstChar { it.lowercase() }}",
             style = WType.bodyDim)
-    }
-}
-
-/** iOS-Segmentschalter: graue Fläche, ausgewähltes Feld als hellere Kapsel. */
-@Composable
-private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Color.White.copy(alpha = .08f)).padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        items.forEachIndexed { i, label ->
-            val bg by animateColorAsState(if (i == selected) Color.White.copy(alpha = .22f) else Color.Transparent, label = "seg")
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(7.dp)).background(bg)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onPick(i) }
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, style = WType.label.copy(color = if (i == selected) WColors.Text else WColors.TextDim, letterSpacing = WType.label.letterSpacing * 0),
-                    textAlign = TextAlign.Center, maxLines = 1)
-            }
-        }
     }
 }
 

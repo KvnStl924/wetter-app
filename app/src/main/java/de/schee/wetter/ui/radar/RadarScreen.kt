@@ -1,5 +1,7 @@
 package de.schee.wetter.ui.radar
 
+import androidx.compose.animation.animateColorAsState
+import de.schee.wetter.ui.pressable
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.roundToInt
@@ -32,12 +34,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,6 +83,9 @@ import kotlin.math.atan
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.random.Random
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** Ebenen des Radars. Es ist immer nur eine an – Ausnahme: Blitze lassen sich zum Regen dazuschalten. */
 enum class RadarLayer(val label: String) { RAIN("Niederschlag"), WIND("Wind"), TEMP("Temperatur"), CLOUDS("Wolken") }
@@ -1090,7 +1093,7 @@ private fun Legend(items: List<Pair<String, Color>>) {
 @Composable
 private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Composable () -> Unit) {
     Box(
-        Modifier.size(44.dp).clip(CircleShape).background(if (dark) Color(0xE61C2233) else Color.White.copy(alpha = .14f)).clickable(onClick = onClick),
+        Modifier.pressable(scale = .88f, onClick = onClick).size(44.dp).clip(CircleShape).background(if (dark) Color(0xE61C2233) else Color.White.copy(alpha = .14f)),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
@@ -1099,9 +1102,8 @@ private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Com
 @Composable
 private fun ToggleButton(on: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
-        Modifier.size(46.dp).clip(CircleShape)
-            .background(if (on) WColors.Accent.copy(alpha = .9f) else Color(0xE61C2233))
-            .clickable(onClick = onClick),
+        Modifier.pressable(scale = .88f, haptic = null, onClick = onClick).size(46.dp).clip(CircleShape)
+            .background(animateColorAsState(if (on) WColors.Accent.copy(alpha = .9f) else Color(0xE61C2233), label = "toggle").value),
         contentAlignment = Alignment.Center,
     ) { content() }
 }

@@ -3,6 +3,7 @@ package de.schee.wetter.data
 import java.time.LocalDateTime
 import kotlin.math.abs
 
+
 /**
  * Bestes Zeitfenster (Kevin am 10.11.2026): „Trocken von 14 bis 16:30 Uhr, dann Regen.“
  * Für eine Tätigkeit wird jede Stunde bewertet (nicht machbar / 0…1), dann das beste zusammenhängende Fenster

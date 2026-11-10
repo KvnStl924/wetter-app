@@ -12,6 +12,7 @@ import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+
 /** „Gefühlte Wahrheit“: ein Wort, wie sich das Wetter draußen anfühlt (aus Temperatur, Taupunkt, Wind, Regen). */
 object Feel {
     fun word(c: Current): String {

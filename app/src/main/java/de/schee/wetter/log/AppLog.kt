@@ -11,6 +11,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
+
 /**
  * Schreibt alles mit, was in der App passiert – nur solange sie geöffnet ist.
  *

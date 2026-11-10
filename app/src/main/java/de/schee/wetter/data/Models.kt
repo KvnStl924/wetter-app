@@ -3,6 +3,7 @@ package de.schee.wetter.data
 import java.time.LocalDate
 import java.time.LocalDateTime
 
+
 data class Current(
     val time: LocalDateTime,
     val temp: Double,

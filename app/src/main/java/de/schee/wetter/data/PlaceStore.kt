@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
+
 /**
  * Gespeicherte Orte (Reihenfolge = Reihenfolge beim Wischen). „Mein Standort“ ist kein Eintrag hier,
  * sondern immer die erste Seite, wenn der Standort erlaubt ist.

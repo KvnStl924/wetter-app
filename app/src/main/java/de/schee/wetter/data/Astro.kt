@@ -13,6 +13,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
+
 /**
  * Mondphase und Mondaufgang, lokal berechnet (Formeln nach SunCalc, V. Agafonkin, BSD-Lizenz).
  * Keine Abfrage im Netz nötig.

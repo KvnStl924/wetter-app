@@ -6,6 +6,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.abs
 
+
 /**
  * Baut aus den beiden Open-Meteo-Antworten eine Vorhersage:
  * Tag 0–1 und alle Stundenwerte der ersten Tage von ICON (ICON-D2 über icon_seamless),
