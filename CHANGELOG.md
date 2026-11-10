@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 2.0.2 – Radar: Knöpfe bleiben stehen
+- Das Bedienfeld unten im Radar ist jetzt immer gleich hoch – die Knöpfe rechts springen beim Umschalten der Ebenen nicht mehr hoch und runter
+- Die Karte beim Antippen eines Punktes schiebt die Knöpfe nicht mehr nach oben
+- Werte an den Orten nur noch bei Temperatur (bzw. Windstärke bei Wind); bei Regen, Blitzen, Wolken und Warnungen nur die Ortsnamen
+
 ## 2.0.1 – Blitze laden schneller
 - Blitze erscheinen sofort Stück für Stück (neueste zuerst), statt erst nach allen 13 Satellitenbildern – der EUMETSAT-Server braucht je Bild 7–12 Sekunden
 - Fertige Blitz-Abschnitte werden auf dem Handy gemerkt und beim nächsten Öffnen nicht neu geladen; 6 statt 4 Bilder gleichzeitig

@@ -1,5 +1,7 @@
 package de.schee.wetter.ui.radar
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.animateColorAsState
 import de.schee.wetter.ui.pressable
 import android.graphics.Bitmap
@@ -293,8 +295,9 @@ fun RadarScreen(
     // Werte und Namen: Auswahl nach dem Verschieben/Zoomen, gezeichnet in der Karte (gehen beim Wischen exakt mit)
     val labelArea = idle ?: transform
     // Jede Stadt mit Wert (Kevin am 09.11.2026): bei Wind km/h, sonst die Temperatur – auch bei Regen, Wolken, Blitzen
-    val labelWw = if (fieldKind != null) ww else ui.worldNow
-    val labels = if (preview == null) rememberLabelsAsync(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null) else emptyList()
+    // Werte an den Orten nur bei Temperatur bzw. Wind (Kevin am 10.11.2026) – sonst nur die Namen
+    val labelWw = if (fieldKind != null) ww else null
+    val labels = if (preview == null) rememberLabelsAsync(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null) else emptyList()
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF282B30))) {
         if (preview != null) {
@@ -327,7 +330,7 @@ fun RadarScreen(
         val f = fix
         if (preview != null && f != null && t != null) MyLocationDot(f, t)
         if (preview != null && t != null) motion?.let { MotionArrowPreview(it, t) }
-        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null))
+        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null))
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
         Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -336,9 +339,11 @@ fun RadarScreen(
             if (place != null) Text(place.name, style = WType.bodyDim.copy(shadow = sh))
         }
 
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
-            // Rechts über dem Bedienfeld: Standort und die Ebenen (senkrecht übereinander)
-            Column(Modifier.align(Alignment.End).padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Bedienfeld unten immer gleich hoch (Kevin am 10.11.2026: die Knöpfe sprangen je nach Ebene hoch und runter)
+        val panelH = 196.dp
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
+            // Rechts über dem Bedienfeld: Standort und die Ebenen (senkrecht übereinander), immer an derselben Stelle
+            Column(Modifier.align(Alignment.BottomEnd).padding(bottom = panelH + 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (fix != null) RoundButton({ AppLog.tap("Vollbild-Radar → Auf meinen Standort zentrieren"); centerTick++ }) { LocateGlyph() }
                 ToggleButton(layer == RadarLayer.RAIN, { pick(RadarLayer.RAIN) }) { RainGlyph() }
                 ToggleButton(lightning, { toggleLightning() }) { BoltGlyph() }
@@ -350,7 +355,8 @@ fun RadarScreen(
                     AppLog.tap("Vollbild-Radar → Warnungen ${if (warnings) "an" else "aus"}")
                 }) { WarnGlyph() }
             }
-            // Angetippter Punkt: Karte im iOS-Stil über dem Bedienfeld
+            // Angetippter Punkt: Karte im iOS-Stil über dem Bedienfeld, links neben den Knöpfen (verschiebt sie nicht)
+            Column(Modifier.align(Alignment.BottomStart).padding(bottom = panelH + 10.dp, end = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.animation.AnimatedVisibility(picked != null,
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 3 },
                 exit = androidx.compose.animation.fadeOut()) {
@@ -358,13 +364,14 @@ fun RadarScreen(
                 if (p != null) PickCard(p, units, onSave = { savePlace(p, weatherVm, haptic) { toast = it } },
                     onClose = { AppLog.tap("Vollbild-Radar → Punkt-Karte geschlossen"); picked = null })
             }
-            androidx.compose.animation.AnimatedVisibility(toast != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
-                modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            androidx.compose.animation.AnimatedVisibility(toast != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
                 Text(toast ?: "", style = WType.small, modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 14.dp, vertical = 9.dp))
+            }
             }
             LaunchedEffect(toast) { if (toast != null) { delay(2200); toast = null } }
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xE6141927)).padding(horizontal = 14.dp, vertical = 12.dp),
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelH).clip(RoundedCornerShape(20.dp)).background(Color(0xE6141927))
+                    .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 when (layer) {
@@ -379,7 +386,7 @@ fun RadarScreen(
                 }
                 if (lightning) LightningInfo(ui, withRain = layer == RadarLayer.RAIN)
                 if (showRain) motion?.let { MotionLine(it) }
-                if (warnings) Text("Amtliche Warnungen des DWD (nur Deutschland) · gelb bis violett = Wetterwarnung bis extremes Unwetter",
+                if (warnings) Text("Amtliche DWD-Warnungen · gelb bis violett = leicht bis extrem",
                     style = WType.label.copy(color = WColors.Label))
             }
         }
@@ -783,12 +790,13 @@ internal fun rememberLabels(
     units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false,
     /** Hotspots (auffällige Stellen ohne Ort) nur bei Temperatur und Wind. */
     hotspots: Boolean = true,
+    placeValue: Boolean = true,
 ): List<MapLabel> {
     // Testbilder: sofort (synchron) berechnen
     val density = LocalDensity.current.density
     val idx = Places.index.collectAsState().value
     val picks = remember(idle, cities, ww != null, temp, place, hotspots, idx) { pickLabels(idle, cities, ww, temp, place, fix, mini, hotspots, density, idx) }
-    return remember(picks, ww, temp, place) { labelValues(picks, ww, temp, units, place) }
+    return remember(picks, ww, temp, place, placeValue) { labelValues(picks, ww, temp, units, place, placeValue) }
 }
 
 /**
@@ -799,6 +807,7 @@ internal fun rememberLabels(
 internal fun rememberLabelsAsync(
     idle: MapTransform?, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
     units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false, hotspots: Boolean = true,
+    placeValue: Boolean = true,
 ): List<MapLabel> {
     val density = LocalDensity.current.density
     val idx = Places.index.collectAsState().value
@@ -810,8 +819,8 @@ internal fun rememberLabelsAsync(
         delay(60) // mehrere Änderungen kurz hintereinander zusammenfassen
         picks = withContext(Dispatchers.Default) { pickLabels(area, cities, ww, temp, place, fixNow, mini, hotspots, density, idx) }
     }
-    LaunchedEffect(picks, ww, temp, place) {
-        labels = withContext(Dispatchers.Default) { labelValues(picks, ww, temp, units, place) }
+    LaunchedEffect(picks, ww, temp, place, placeValue) {
+        labels = withContext(Dispatchers.Default) { labelValues(picks, ww, temp, units, place, placeValue) }
     }
     return labels
 }
@@ -830,7 +839,7 @@ internal fun pickLabels(
         val boxes = ArrayList<FloatArray>()
         val gap = 4 * density
         fun overlaps(b: FloatArray) = boxes.any { o -> b[0] < o[2] + gap && b[2] > o[0] - gap && b[1] < o[3] + gap && b[3] > o[1] - gap }
-        fun inUi(b: FloatArray) = !mini && (b[1] < 84 * density || b[3] > idle.h - 214 * density || (b[2] > idle.w - 74 * density && b[3] > idle.h - 560 * density))
+        fun inUi(b: FloatArray) = !mini && (b[1] < 84 * density || b[3] > idle.h - 234 * density || (b[2] > idle.w - 74 * density && b[3] > idle.h - 600 * density))
         // Breite schätzen: Name (≈ 7 dp je Zeichen in 12,5 sp fett) bzw. Pille (≈ 46 dp)
         fun box(x: Float, y: Float, name: String?, kind: Int): FloatArray {
             val nameW = (name?.length ?: 0) * 6.8f * density + 4 * density
@@ -906,7 +915,7 @@ internal fun pickLabels(
 }
 
 /** Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt). */
-internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolean, units: de.schee.wetter.data.Units, place: RadarPlace?): List<MapLabel> {
+internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolean, units: de.schee.wetter.data.Units, place: RadarPlace?, placeValue: Boolean = true): List<MapLabel> {
     run {
         val o = DoubleArray(2)
         return picks.mapNotNull { l ->
@@ -914,12 +923,12 @@ internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolea
             val value: String? = when {
                 ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { color = tempColorMap(it); "${units.tNum(it)}°" }
                 ww != null -> { ww.windAt(l.lat, l.lon, o); val k = hypot(o[0], o[1]); color = windColor(k); "${units.wNum(k)} ${units.windLabel}" }
-                l.kind == 2 -> place?.tempLabel
+                l.kind == 2 && placeValue -> place?.tempLabel
                 else -> null
             }
             // eigener Ort: Name ohne Zusatz („Saffig · Rheinland-Pfalz …“ → „Saffig“)
-            val name = if (l.kind == 2) place?.name?.substringBefore(" · ")?.takeIf { color != null } else l.name
-            if (value == null && l.kind != 3) null else MapLabel(l.lat, l.lon, value, name, l.kind, color)
+            val name = if (l.kind == 2) place?.name?.substringBefore(" · ")?.takeIf { color != null || !placeValue } else l.name
+            if (value == null && l.kind != 3 && !(l.kind == 2 && name != null)) null else MapLabel(l.lat, l.lon, value, name, l.kind, color)
         }
     }
 }
