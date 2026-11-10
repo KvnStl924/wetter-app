@@ -114,6 +114,34 @@ class RadarTest {
         assertTrue(de.schee.wetter.data.DwdWorld.url(de.schee.wetter.data.DwdWorld.Field.TEMP, Instant.parse("2026-11-09T18:00:00Z")).contains("2026-11-09T18:00:00.000Z"))
     }
 
+    /** Regen-Vorhersage weltweit (3.0.4): Menge der Stunde aus zwei aufsummierten DWD-Feldern, Modellläufe, Abruf-Adresse. */
+    @Test fun worldRain() {
+        fun g(n: String) = de.schee.wetter.data.WorldGrid.fromGeoTiff(javaClass.classLoader!!.getResource(n)!!.readBytes())
+        val rate = g("world_rain_21.tif").minus(g("world_rain_20.tif"))
+        var wet = 0; var n = 0; var max = 0.0
+        for (lat in -80..80 step 2) for (lon in -180 until 180 step 2) {
+            val v = rate.value(lat.toDouble(), lon.toDouble())
+            assertTrue(v >= 0.0); if (v >= 0.1) wet++; if (v > max) max = v; n++
+        }
+        // Regen fällt auf einem kleineren Teil der Erde, und nicht mehr als ein Wolkenbruch je Stunde
+        assertTrue("nass $wet von $n", wet in n / 20..n / 3)
+        assertTrue("max $max", max in 1.0..100.0)
+
+        val xml = """<wcsgs:TimeDomain default="2026-11-18T00:00:00.000Z"><gml:TimePeriod><gml:beginPosition>2026-11-09T06:00:00.000Z</gml:beginPosition></gml:TimePeriod></wcsgs:TimeDomain>
+            <wcsgs:DimensionDomain name="REFERENCE_TIME" default="2026-11-10T12:00:00.000Z">
+            <gml:TimeInstant gml:id="a"><gml:timePosition>2026-11-10T06:00:00.000Z</gml:timePosition></gml:TimeInstant>
+            <gml:TimeInstant gml:id="b"><gml:timePosition>2026-11-10T12:00:00.000Z</gml:timePosition></gml:TimeInstant>
+            </wcsgs:DimensionDomain><gml:timePosition>2026-01-01T00:00:00.000Z</gml:timePosition>"""
+        assertEquals(listOf(Instant.parse("2026-11-10T12:00:00Z"), Instant.parse("2026-11-10T06:00:00Z")), de.schee.wetter.data.DwdWorld.parseRuns(xml))
+        assertEquals(emptyList<Instant>(), de.schee.wetter.data.DwdWorld.parseRuns("<x/>"))
+        val url = de.schee.wetter.data.DwdWorld.url(de.schee.wetter.data.DwdWorld.Field.RAIN, Instant.parse("2026-11-10T20:00:00Z"), Instant.parse("2026-11-10T12:00:00Z"))
+        assertTrue(url.contains("Icon_reg025_fd_sl_TOTPREC") && url.contains("time(%222026-11-10T20:00:00.000Z%22)") && url.contains("REFERENCE_TIME(%222026-11-10T12:00:00.000Z%22)"))
+
+        // 5-Minuten-Schritte gehören zur laufenden Stunde, deren Menge bis zum Stundenende zählt
+        assertEquals(Instant.parse("2026-11-10T20:00:00Z"), de.schee.wetter.ui.radar.rainHour(Instant.parse("2026-11-10T19:05:00Z")))
+        assertEquals(Instant.parse("2026-11-10T20:00:00Z"), de.schee.wetter.ui.radar.rainHour(Instant.parse("2026-11-10T20:00:00Z")))
+    }
+
     /** 3.0.2: Orte hatten keine Schriftgröße → die Karte zeichnete ihre Namen mit Größe 0 (unsichtbar). */
     @Test fun jedeBeschriftungHatEineSchriftgroesse() {
         val labels = listOf(

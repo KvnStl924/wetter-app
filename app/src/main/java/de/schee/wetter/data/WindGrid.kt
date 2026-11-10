@@ -13,6 +13,8 @@ import kotlin.math.sin
 /**
  * Windfeld als Gitter (Open-Meteo, ICON/global, stündlich für 13 Stunden).
  *  - [GERMANY]: 1° über Deutschland und Nachbarländer (154 Punkte), beim Öffnen der Windebene
+ * Seit 3.0.4 lädt die App dieses Gitter nicht mehr: Temperatur, Wind und Regen-Vorhersage kommen weltweit vom
+ * DWD (siehe WorldField.kt). Die Klasse bleibt für die Tests und als Rückfallweg.
  *  - [viewSpec]: grob, 10 × 10 Punkte über dem sichtbaren Kartenausschnitt – wird nachgeladen, wenn man
  *    die Karte über das Deutschland-Gitter hinaus verschiebt oder herauszoomt (echte Werte, keine Simulation)
  */

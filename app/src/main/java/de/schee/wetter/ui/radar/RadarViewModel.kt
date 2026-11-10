@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import de.schee.wetter.data.DwdWorld
 import de.schee.wetter.data.RadarData
 import de.schee.wetter.data.Satellite
-import de.schee.wetter.data.WindGrid
+import de.schee.wetter.data.WorldGrid
 import de.schee.wetter.data.WorldWeather
 import de.schee.wetter.log.AppLog
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +30,9 @@ data class RadarUi(
     val bytes: Map<Int, ByteArray?> = emptyMap(),
     val nowIndex: Int = 0,
     val error: String? = null,
-    /** Grobes Gitter über dem sichtbaren Ausschnitt – nur noch für den Modell-Regen der Zukunft außerhalb Deutschlands. */
-    val windView: WindGrid? = null,
+    /** Regen-Vorhersage weltweit (DWD ICON): Menge der Stunde in mm, Schlüssel = Ende der Stunde. */
+    val worldRain: Map<Instant, WorldGrid> = emptyMap(),
+    val worldRainLoading: Boolean = false,
     /** Weltweites Radar (RainViewer), leer wenn nicht erreichbar. */
     val rainViewer: List<de.schee.wetter.data.RainViewer.Frame> = emptyList(),
     /** Temperatur und Wind weltweit (DWD ICON), je volle Stunde. */
@@ -62,6 +63,7 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     private var job: Job? = null
     private var worldJob: Job? = null
     private var hoursJob: Job? = null
+    private var rainJob: Job? = null
     private var cloudJob: Job? = null
     private var lightningJob: Job? = null
 
@@ -124,8 +126,9 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun loadHour(time: Instant): WorldWeather? = withContext(Dispatchers.IO) {
         val ctx = getApplication<Application>()
-        val t = async { runCatching { DwdWorld.load(ctx, DwdWorld.Field.TEMP, time) }.getOrNull() }
-        val w = async { runCatching { DwdWorld.load(ctx, DwdWorld.Field.WIND, time) }.getOrNull() }
+        // neuester Modelllauf (bis 3.0.3 kam ohne Angabe der älteste, bis zu 1,5 Tage alt)
+        val t = async { runCatching { DwdWorld.loadLatest(ctx, DwdWorld.Field.TEMP, time) }.getOrNull() }
+        val w = async { runCatching { DwdWorld.loadLatest(ctx, DwdWorld.Field.WIND, time) }.getOrNull() }
         val tg = t.await(); val wg = w.await()
         if (tg == null && wg == null) null else WorldWeather(time, tg, wg)
     }
@@ -259,33 +262,73 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- Modell-Regen außerhalb Deutschlands (Zukunft)
 
-    private var viewJob: Job? = null
-    private var viewPauseUntil = 0L
-    private val budget = ArrayDeque<Pair<Long, Int>>()
+    // ---------------------------------------------------------------- Regen-Vorhersage weltweit (DWD ICON)
 
-    /** Nur für die Regen-Vorhersage außerhalb Deutschlands: grobes Gitter (Open-Meteo) über dem Ausschnitt. */
-    fun ensureView(south: Double, north: Double, west: Double, east: Double) {
-        val span = maxOf(north - south, east - west)
-        _ui.value.windView?.let { v -> if (v.covers(south, north, west, east) && v.step <= span / 3) return }
-        val wait = (viewPauseUntil - System.currentTimeMillis()).coerceAtLeast(0)
-        viewJob?.cancel()
-        viewJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(wait)
-            val points = WindGrid.VIEW_POINTS * WindGrid.VIEW_POINTS
-            while (true) {
-                val now = System.currentTimeMillis()
-                budget.removeAll { now - it.first > 60_000 }
-                if (budget.sumOf { it.second } + points <= 300) break
-                kotlinx.coroutines.delay((60_000 - (now - budget.first().first)).coerceAtLeast(500))
+    /**
+     * Regen der nächsten Stunden außerhalb Deutschlands: Modell des DWD (ICON, weltweit, 0,5°) – wie Temperatur und Wind.
+     * Der DWD liefert die seit Beginn des Modelllaufs aufsummierte Menge; die Menge einer Stunde ist die Differenz
+     * zweier Stunden desselben Laufs. Bis 3.0.3 kam das von Open-Meteo aus nur 10 × 10 Punkten über dem
+     * Kartenausschnitt – weit herausgezoomt ergab das riesige verschwommene Farbflächen (Kevins Video vom 10.11.2026).
+     */
+    fun loadWorldRain() {
+        if (rainJob?.isActive == true) return
+        val first = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.HOURS).plusSeconds(3600)
+        val hours = (0..12).map { first.plusSeconds(it * 3600L) }
+        if (hours.all { _ui.value.worldRain[it] != null }) return
+        rainJob = viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            // neue Stunde: vergangene Stunden verwerfen
+            set { it.copy(worldRain = it.worldRain.filterKeys { k -> !k.isBefore(first) }, worldRainLoading = true) }
+            val ctx = getApplication<Application>()
+            var used: Instant? = null
+            try {
+                withContext(Dispatchers.IO) {
+                    // neuester Modelllauf; fehlen dort noch Stunden (der Lauf wird gerade eingespielt), der Lauf davor
+                    for (run in DwdWorld.runs(DwdWorld.Field.RAIN).filter { it.isBefore(first.minusSeconds(3600)) }.take(2)) {
+                        if (loadRainRun(ctx, run, hours) && used == null) used = run
+                        if (hours.all { _ui.value.worldRain[it] != null }) break
+                    }
+                }
+            } finally {
+                set { it.copy(worldRainLoading = false) }
             }
-            budget += System.currentTimeMillis() to points
-            viewPauseUntil = System.currentTimeMillis() + 5_000
-            val spec = WindGrid.viewSpec(south, north, west, east)
-            val r = withContext(Dispatchers.IO) { runCatching { WindGrid.load(spec, "Open-Meteo Gitter Ausschnitt (Regen-Vorhersage)") } }
-            r.onSuccess { g -> set { it.copy(windView = g) } }
-            r.onFailure { if (it.message?.contains("429") == true) viewPauseUntil = System.currentTimeMillis() + 60_000 }
+            val n = hours.count { _ui.value.worldRain[it] != null }
+            AppLog.data("Regen-Vorhersage weltweit (DWD ICON${used?.let { ", Lauf ${it.toString().substring(11, 16)} UTC" } ?: ""}): $n/${hours.size} Stunden bereit (${System.currentTimeMillis() - started} ms)")
         }
     }
+
+    /** Lädt die noch fehlenden Stunden aus einem Modelllauf (3 Abrufe gleichzeitig); false, wenn der Lauf nichts liefert. */
+    private suspend fun loadRainRun(ctx: Application, run: Instant, hours: List<Instant>): Boolean = kotlinx.coroutines.coroutineScope {
+        val missing = hours.filter { _ui.value.worldRain[it] == null }
+        // je Stunde braucht es die Summe an ihrem Ende und die eine Stunde davor
+        val need = (missing + missing.map { it.minusSeconds(3600) }).distinct().sorted()
+        if (need.isEmpty()) return@coroutineScope true
+        val acc = java.util.concurrent.ConcurrentHashMap<Instant, WorldGrid>()
+        // der DWD-Server antwortet gelegentlich mit einem Fehler – dann ein zweiter Versuch
+        fun fetch(t: Instant): WorldGrid? {
+            repeat(2) { runCatching { return DwdWorld.load(ctx, DwdWorld.Field.RAIN, t, run = run) } }
+            return null
+        }
+        // erst eine Stunde allein: kommt nichts, ist der Lauf (noch) nicht da
+        acc[need.first()] = fetch(need.first()) ?: return@coroutineScope false
+        val gate = Semaphore(3)
+        need.drop(1).map { t ->
+            async {
+                gate.withPermit {
+                    val g = fetch(t)
+                    if (g != null) {
+                        acc[t] = g
+                        for (h in listOf(t, t.plusSeconds(3600))) {
+                            val a = acc[h]; val b = acc[h.minusSeconds(3600)]
+                            if (a != null && b != null && h in missing) set { if (it.worldRain[h] != null) it else it.copy(worldRain = it.worldRain + (h to a.minus(b))) }
+                        }
+                    }
+                }
+            }
+        }.awaitAll()
+        true
+    }
+
 
     /** Alles vorladen (beim Öffnen der App). */
     fun preload() {
@@ -296,7 +339,7 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     /** Beim Verlassen der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
         if (job?.isActive == true) { job?.cancel(); set { it.copy(frames = emptyList(), bytes = emptyMap()) } }
-        worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); viewJob?.cancel(); detailJob?.cancel()
+        worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); rainJob?.cancel(); detailJob?.cancel()
     }
 
     /** Für die Testbilder am PC. */

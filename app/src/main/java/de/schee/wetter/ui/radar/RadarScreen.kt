@@ -65,8 +65,8 @@ import de.schee.wetter.data.LocationSource
 import de.schee.wetter.data.Places
 import de.schee.wetter.data.RadarData
 import de.schee.wetter.data.Satellite
-import de.schee.wetter.data.WindGrid
 import de.schee.wetter.data.WorldCities
+import de.schee.wetter.data.WorldGrid
 import de.schee.wetter.data.WorldWeather
 import de.schee.wetter.log.AppLog
 import de.schee.wetter.ui.sky.LocalAnimate
@@ -195,7 +195,7 @@ fun RadarScreen(
         if (preview != null) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             vm.preload()
-            androidx.compose.runtime.snapshotFlow { layer }.collect { if (it == RadarLayer.WIND || it == RadarLayer.TEMP) vm.loadWorldHours() }
+            androidx.compose.runtime.snapshotFlow { layer }.collect { if (it == RadarLayer.WIND || it == RadarLayer.TEMP) vm.loadWorldHours() else if (it == RadarLayer.RAIN) vm.loadWorldRain() }
         }
     }
     LaunchedEffect(lightning) {
@@ -272,22 +272,20 @@ fun RadarScreen(
         field = withContext(Dispatchers.Default) { worldFieldBitmap(ww, fieldKind == RadarLayer.TEMP) }
     }
 
-    // Regen-Vorhersage außerhalb Deutschlands: grobes Modell-Gitter (nur für Zeitpunkte in der Zukunft)
+    // Regen-Vorhersage außerhalb Deutschlands: Modell des DWD weltweit (nur für Zeitpunkte in der Zukunft)
     val frame = ui.frames.getOrNull(index)
     val rvIndex = if (showRain && frame != null && frame.minutes <= 0) de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, frame.time) else null
     val future = showRain && frame != null && frame.minutes > 0
-    val precipView = remember(future, ui.windView, index) {
-        val g = ui.windView ?: return@remember null
-        if (!future) return@remember null
-        val h = frame!!.time.truncatedTo(java.time.temporal.ChronoUnit.HOURS).let { if (it == frame.time) it else it.plusSeconds(3600) }
-        g to precipViewBitmap(g, g.hourIndex(h))
-    }
-    val tNow = transform
-    LaunchedEffect(future, tNow?.let { listOf(Math.round(it.south * 2), Math.round(it.north * 2), Math.round(it.west * 2), Math.round(it.east * 2)) }) {
-        if (preview != null || tNow == null || !future) return@LaunchedEffect
-        delay(500)
-        vm.ensureView(tNow.south, tNow.north, tNow.west, tNow.east)
-    }
+    val rainGrid = if (future) ui.worldRain[rainHour(frame!!.time)] else null
+    var precipView by remember { mutableStateOf<Bitmap?>(null) }
+    if (preview != null) precipView = remember(rainGrid) { rainGrid?.let { worldRainBitmap(it) } }
+    else LaunchedEffect(rainGrid) { precipView = rainGrid?.let { withContext(Dispatchers.Default) { worldRainBitmap(it) } } }
+    // auch nach einem Stundenwechsel bei offenem Radar: fehlende Stunden nachladen
+    LaunchedEffect(future) { if (preview == null && future) vm.loadWorldRain() }
+    // Ist Deutschland gar nicht im Bild, stammt die Vorhersage allein aus dem Modell (Beschriftung der Zeitleiste)
+    val abroad = (idle ?: transform)?.let { t ->
+        t.north < RadarData.SOUTH || t.south > RadarData.NORTH || (-1..1).none { k -> t.west <= RadarData.EAST + 360 * k && t.east >= RadarData.WEST + 360 * k }
+    } ?: false
 
     // Wolken: beim Hineinzoomen den Ausschnitt scharf nachladen (nach dem Loslassen)
     LaunchedEffect(layer == RadarLayer.CLOUDS, idle) {
@@ -311,7 +309,7 @@ fun RadarScreen(
             idle = transform
             val kind = ui.frames.getOrNull(index)?.kind
             val overlay = if (showRain && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind) } else null
-            PreviewMap(preview, if (previewArea == null) overlay else null, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, transform!!)
+            PreviewMap(preview, if (previewArea == null) overlay else null, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, transform!!, precipView)
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
                 precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null,
@@ -381,9 +379,9 @@ fun RadarScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 when (layer) {
-                    RadarLayer.RAIN -> RainTimeline(ui, index, playing, onPlay = {
+                    RadarLayer.RAIN -> RainTimeline(ui, index, playing, abroad, onPlay = {
                         playing = !playing; AppLog.tap("Vollbild-Radar → ${if (playing) "Abspielen" else "Pause"}")
-                    }, onIndex = { playing = false; index = it }, onDone = { AppLog.tap("Vollbild-Radar → Zeitleiste auf ${label(ui, index)}") })
+                    }, onIndex = { playing = false; index = it }, onDone = { AppLog.tap("Vollbild-Radar → Zeitleiste auf ${label(ui, index, abroad)}") })
                     RadarLayer.WIND, RadarLayer.TEMP -> WorldTimeline(ui, hour, playing, temp = layer == RadarLayer.TEMP, minMax = minMax, onMinMax = {
                         haptic(de.schee.wetter.ui.Haptics.Kind.SNAP); minMax = !minMax
                         radarPrefs.edit().putBoolean("minMax", minMax).apply()
@@ -486,7 +484,7 @@ private fun previewTransform(w: Float, h: Float, area: DoubleArray?): MapTransfo
 }
 
 @Composable
-private fun PreviewMap(base: Bitmap, overlay: Bitmap?, field: Bitmap?, clouds: Bitmap?, t: MapTransform) {
+private fun PreviewMap(base: Bitmap, overlay: Bitmap?, field: Bitmap?, clouds: Bitmap?, t: MapTransform, rain: Bitmap? = null) {
     Box(Modifier.fillMaxSize()) {
         // Weltbilder an ihre Stelle (Mercator ±85°)
         for (bmp in listOfNotNull(field, clouds)) {
@@ -498,6 +496,15 @@ private fun PreviewMap(base: Bitmap, overlay: Bitmap?, field: Bitmap?, clouds: B
             }
         }
         Image(base.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        // Regen-Vorhersage weltweit (Modell): Weltbild über der Karte, unter dem Radarbild
+        rain?.let { bmp ->
+            val img = remember(bmp) { bmp.asImageBitmap() }
+            Canvas(Modifier.fillMaxSize()) {
+                val l = t.xRaw(-180.0); val r = t.xRaw(180.0); val top = t.y(Satellite.MAX_LAT); val b = t.y(-Satellite.MAX_LAT)
+                drawImage(img, dstOffset = IntOffset(l.toInt(), top.toInt()), dstSize = IntSize((r - l).toInt(), (b - top).toInt()),
+                    alpha = .9f, filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
+            }
+        }
         overlay?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize().background(Color.Transparent), contentScale = ContentScale.Fit, alpha = .9f) }
     }
 }
@@ -571,28 +578,32 @@ fun worldFieldBitmap(ww: WorldWeather, temp: Boolean, size: Int = 1024): Bitmap 
     return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
 }
 
-/** Modell-Niederschlag (mm/h) im groben Ausschnitt-Gitter; über Deutschland liegt das DWD-Bild, dort ausgeblendet. */
-fun precipViewBitmap(g: WindGrid, hour: Int): Bitmap {
-    val w = g.cols * 2; val h = g.rows * 2
-    val west = g.lon0 - g.step / 2; val east = g.lon1 + g.step / 2
-    val yTop = RadarData.mercY((g.lat1 + g.step / 2).coerceAtMost(85.0)); val yBot = RadarData.mercY((g.lat0 - g.step / 2).coerceAtLeast(-85.0))
-    val px = IntArray(w * h)
-    for (y in 0 until h) {
-        val my = (yTop + (y + 0.5) / h * (yBot - yTop)) * 180.0 / 20037508.34
-        val lat = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
-        for (x in 0 until w) {
-            val lon = west + (x + 0.5) / w * (east - west)
-            val mm = g.precipAt(hour, lat, lon)
-            if (mm < 0.1) continue
+/** Stunde (ihr Ende), deren Regenmenge zu einem Zeitpunkt der Zeitleiste gehört. */
+internal fun rainHour(t: Instant): Instant = t.truncatedTo(java.time.temporal.ChronoUnit.HOURS).let { if (it == t) it else it.plusSeconds(3600) }
+
+/**
+ * Modell-Niederschlag einer Stunde (mm) als Weltbild (Mercator ±85°), Farben wie beim Radar.
+ * Über Deutschland liegt das DWD-Bild – dort ausgeblendet.
+ */
+fun worldRainBitmap(g: WorldGrid, size: Int = 1024): Bitmap {
+    val px = IntArray(size * size)
+    for (y in 0 until size) {
+        val lat = Satellite.latOfRow(y + 0.5, size)
+        for (x in 0 until size) {
+            val lon = Satellite.lonOfCol(x + 0.5, size)
+            val mm = g.value(lat, lon)
+            if (!(mm >= RAIN_MIN)) continue
             val dwd = minOf(lat - RadarData.SOUTH, RadarData.NORTH - lat, lon - RadarData.WEST, RadarData.EAST - lon)
             val keep = (1 - dwd / 0.5).coerceIn(0.0, 1.0)
-            val edge = ((g.inside(lat, lon) + g.step / 2) / g.step).coerceIn(0.0, 1.0)
-            val a = (if (mm < 1.0) 0xB0 else 0xD8) * keep * edge * ((mm - 0.1) / 0.3).coerceIn(0.0, 1.0)
-            px[y * w + x] = (RadarData.colorFor(mm) and 0xFFFFFF) or (a.toInt() shl 24)
+            val a = (if (mm < 1.0) 0xB0 else 0xD8) * keep * ((mm - RAIN_MIN) / 0.3).coerceIn(0.0, 1.0)
+            px[y * size + x] = (RadarData.colorFor(mm) and 0xFFFFFF) or (a.toInt() shl 24)
         }
     }
-    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
 }
+
+/** Ab dieser Menge (mm je Stunde) zeigt die Karte Modell-Regen. */
+private const val RAIN_MIN = 0.1
 
 // ------------------------------------------------------------------ Wind: wandernde Linien
 
@@ -1022,7 +1033,7 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
 
 // ------------------------------------------------------------------ Bedienfeld unten
 
-private fun label(ui: RadarUi, i: Int): String {
+private fun label(ui: RadarUi, i: Int, abroad: Boolean = false): String {
     val f = ui.frames.getOrNull(i) ?: return ""
     val m = f.minutes
     val rel = when {
@@ -1031,12 +1042,12 @@ private fun label(ui: RadarUi, i: Int): String {
         m < 60 -> "in $m Min."
         else -> "in ${m / 60} Std." + if (m % 60 != 0) " ${m % 60} Min." else ""
     }
-    val src = when (f.kind) { RadarData.Kind.RADAR -> "Radar"; RadarData.Kind.FORECAST -> "Radar-Vorhersage"; RadarData.Kind.MODEL -> "Modell" }
+    val src = when (f.kind) { RadarData.Kind.RADAR -> "Radar"; RadarData.Kind.FORECAST -> if (abroad) "Modell" else "Radar-Vorhersage"; RadarData.Kind.MODEL -> "Modell" }
     return "${hhmm.format(f.time)} · $rel · $src"
 }
 
 @Composable
-private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, onPlay: () -> Unit, onIndex: (Int) -> Unit, onDone: () -> Unit) {
+private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, abroad: Boolean, onPlay: () -> Unit, onIndex: (Int) -> Unit, onDone: () -> Unit) {
     when {
         ui.error != null -> { Text(ui.error, style = WType.body.copy(color = WColors.Warn)); return }
         ui.frames.isEmpty() -> { Text("Radar wird geladen …", style = WType.body); return }
@@ -1045,11 +1056,18 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, onPlay: () -
         RoundButton(onPlay, dark = false) { if (playing) PauseGlyph() else PlayGlyph() }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(label(ui, index), style = WType.small)
+            Text(label(ui, index, abroad), style = WType.small)
             val missing = ui.frames.size - ui.loaded
+            val f = ui.frames.getOrNull(index)
             Text(
                 if (missing > 0) "Lade Radarbilder … ${ui.loaded}/${ui.frames.size}"
                 else if (ui.bytes[index] == null) "Für diesen Zeitpunkt gibt es kein Bild."
+                // Zukunft: außerhalb Deutschlands das Weltmodell des DWD (ICON), sonst das weltweite Radar
+                else if (f != null && f.minutes > 0) when {
+                    ui.worldRain[rainHour(f.time)] != null -> "DWD · weltweit Modell (ICON)"
+                    ui.worldRainLoading -> "DWD · weltweite Vorhersage lädt …"
+                    else -> "DWD · weltweit gerade keine Vorhersage"
+                }
                 else "DWD · weltweit RainViewer",
                 style = WType.bodyDim,
             )

@@ -146,6 +146,8 @@ class ScreenshotDump {
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)
+    @Test fun radarForecastAmerica() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_vorhersage_amerika.png", forecast = true, area = doubleArrayOf(-140.0, -30.0, -45.0, 62.0))
+    @Test fun radarForecastEurope() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_vorhersage_europa.png", forecast = true, area = doubleArrayOf(-30.0, 60.0, -10.0, 72.0))
     @Test fun temp() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp.png")
     @Test fun tempWorld() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_welt.png", area = doubleArrayOf(-30.0, 60.0, -40.0, 60.0))
     @Test fun tempMinMax() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin.png", minMax = true)
@@ -184,7 +186,9 @@ class ScreenshotDump {
             all.mapIndexed { i, s -> s.copy(time = start.minusSeconds((i % 12) * 300L)) }
         } else emptyList()
         vm.preview(de.schee.wetter.ui.radar.RadarUi(frames, frames.indices.associateWith { if (it == now || it % 3 == 0) bytes("radar_de.png") else null }.filterValues { it != null } + (now to bytes("radar_de.png")), now,
-            windView = de.schee.wetter.data.WindGrid.parse(res("viewgrid.json"), de.schee.wetter.data.WindGrid.Spec(22.5, -16.0, 3.5, 16, 16)),
+            // Regen-Vorhersage weltweit: echte DWD-Daten vom 10.11.2026 (Summe bis 21 Uhr minus Summe bis 20 Uhr UTC)
+            worldRain = de.schee.wetter.data.WorldGrid.fromGeoTiff(bytes("world_rain_21.tif")).minus(de.schee.wetter.data.WorldGrid.fromGeoTiff(bytes("world_rain_20.tif")))
+                .let { rain -> frames.filter { it.minutes > 0 }.map { de.schee.wetter.ui.radar.rainHour(it.time) }.distinct().associateWith { rain } },
             world = mapOf(start to ww), worldStart = start, clouds = clouds, strikes = strikes, strikesNewest = start))
         if (forecast) vm.preview(vm.ui.value.copy(nowIndex = frames.size - 3, bytes = vm.ui.value.bytes + (frames.size - 3 to bytes("model_de.png"))))
         val place = de.schee.wetter.ui.radar.RadarPlace("Mechernich", 50.59, 6.65, "3°")

@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.4 – Regen-Vorhersage weltweit vom DWD
+- Regen-Vorhersage außerhalb Deutschlands kommt jetzt aus dem weltweiten DWD-Modell (ICON, 0,5°-Raster, stündlich bis +12 Std.) statt aus 10 × 10 Punkten über dem Kartenausschnitt – echte Regengebiete statt riesiger verschwommener Farbflächen, und sie bleiben beim Verschieben an ihrem Ort
+- Zeitleiste: Ist Deutschland nicht im Bild, steht bei der Vorhersage „Modell“ statt „Radar-Vorhersage“; die Zeile darunter nennt die Quelle (weltweit Modell ICON) bzw. dass noch geladen wird
+- Temperatur und Wind weltweit nehmen jetzt den neuesten Modelllauf des DWD (vorher lieferte der DWD ohne Angabe den ältesten, bis zu 1,5 Tage alt)
+- Kein Abruf des Open-Meteo-Gitters mehr für das Radar
+
 ## 3.0.3 – Ortsnamen auf der Karte wieder da
 - Seit 3.0.2 fehlten auf der Karte alle Ortsnamen (Niederschlag, Blitze, Wind, Temperatur, Wolken) – es standen nur noch Punkte und Werte da. Ursache: Orte bekamen die Schriftgröße 0. Behoben, mit eigenem Test dagegen
 

@@ -14,6 +14,7 @@ import kotlin.math.floor
  * Weltweite Modellfelder des DWD (ICON global) als Rohwerte – einmal geladen, überall sofort verfügbar:
  *  - Temperatur in 2 m (°C), 0,5°-Raster
  *  - Wind in 10 m (u/v), 1°-Raster
+ *  - Niederschlag der nächsten Stunden (mm je Stunde), 0,5°-Raster – für die Regen-Vorhersage außerhalb Deutschlands
  * Quelle: DWD GeoServer (WCS), GeoTIFF. Auf dem Handy zwischengespeichert, damit das Radar beim
  * nächsten Öffnen ohne Wartezeit bereit ist (seit 0.5.3; vorher Open-Meteo-Gitter je Ausschnitt).
  */
@@ -36,6 +37,12 @@ class WorldGrid(
         val a = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx
         val b = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx
         return a * (1 - ty) + b * ty
+    }
+
+    /** Differenz zweier gleich großer Felder (aufsummierter Niederschlag → Menge der Stunde), nie negativ. */
+    fun minus(o: WorldGrid): WorldGrid {
+        require(o.data.size == data.size) { "Felder passen nicht zusammen" }
+        return WorldGrid(width, height, bands, FloatArray(data.size) { maxOf(0f, data[it] - o.data[it]) }, lon0, lat0, dx, dy)
     }
 
     companion object {
@@ -128,33 +135,79 @@ class WorldWeather(val time: Instant, val temp: WorldGrid?, val wind: WorldGrid?
 
 /** Abruf der DWD-Weltfelder (WCS) mit Zwischenspeicher auf dem Handy. */
 object DwdWorld {
-    private const val WCS = "https://maps.dwd.de/geoserver/dwd/ows?service=WCS&version=2.0.1&request=GetCoverage&format=image/tiff&geotiff:compression=Deflate"
+    private const val OWS = "https://maps.dwd.de/geoserver/dwd/ows?service=WCS&version=2.0.1"
+    private const val WCS = "$OWS&request=GetCoverage&format=image/tiff&geotiff:compression=Deflate"
 
     enum class Field(val id: String, val scale: String, val label: String) {
         TEMP("dwd__Icon_reg025_fd_sl_T2M", "0.5", "DWD Temperatur weltweit"),
         WIND("dwd__Icon_reg025_fd_sl_UV10M", "0.25", "DWD Wind weltweit"),
+        /** Niederschlag, aufsummiert seit Beginn des Modelllaufs (mm) – die Menge einer Stunde ist die Differenz zweier Stunden. */
+        RAIN("dwd__Icon_reg025_fd_sl_TOTPREC", "0.5", "DWD Niederschlag weltweit"),
     }
 
     /** Volle Stunde, zu der „jetzt“ gehört (ab der 31. Minute die nächste). */
     fun hourOf(now: Instant): Instant = now.plus(30, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.HOURS)
 
-    fun url(f: Field, time: Instant) =
-        "$WCS&coverageId=${f.id}&scaleFactor=${f.scale}&subset=time(%22${time.truncatedTo(ChronoUnit.SECONDS).toString().removeSuffix("Z")}.000Z%22)"
+    private fun iso(t: Instant) = t.truncatedTo(ChronoUnit.SECONDS).toString().removeSuffix("Z") + ".000Z"
 
-    /** Feld laden: zuerst aus dem Speicher (höchstens [maxAgeH] Stunden alt), sonst vom DWD. */
-    fun load(context: Context?, f: Field, time: Instant, maxAgeH: Int = 3): WorldGrid {
+    /**
+     * [run] = Modelllauf (alle 6 Stunden ein neuer). Ohne Angabe liefert der DWD den ÄLTESTEN vorhandenen Lauf,
+     * bis zu 1,5 Tage alt – so war es bis 3.0.3 bei Temperatur und Wind.
+     */
+    fun url(f: Field, time: Instant, run: Instant? = null) =
+        "$WCS&coverageId=${f.id}&scaleFactor=${f.scale}&subset=time(%22${iso(time)}%22)" +
+            (run?.let { "&subset=REFERENCE_TIME(%22${iso(it)}%22)" } ?: "")
+
+    /** Modellläufe aus der Beschreibung eines Felds (DescribeCoverage), neuester zuerst. */
+    fun parseRuns(xml: String): List<Instant> {
+        val from = xml.indexOf("name=\"REFERENCE_TIME\"")
+        if (from < 0) return emptyList()
+        val to = xml.indexOf("</wcsgs:DimensionDomain>", from).let { if (it < 0) xml.length else it }
+        return Regex("<gml:timePosition>([^<]+)</gml:timePosition>").findAll(xml.substring(from, to))
+            .mapNotNull { runCatching { Instant.parse(it.groupValues[1]) }.getOrNull() }.sortedDescending().toList()
+    }
+
+    private val runCache = HashMap<Field, Pair<Long, List<Instant>>>()
+
+    /** Modellläufe eines Felds, neuester zuerst (20 Minuten gemerkt); leer, wenn der DWD nicht antwortet. */
+    fun runs(f: Field): List<Instant> {
+        synchronized(runCache) { runCache[f]?.let { if (System.currentTimeMillis() - it.first < 20 * 60_000) return it.second } }
+        val list = runCatching {
+            parseRuns(String(Http.get("${f.label}: Modellläufe", "$OWS&request=DescribeCoverage&coverageId=${f.id}", timeoutMs = 15_000)))
+        }.getOrDefault(emptyList())
+        if (list.isNotEmpty()) synchronized(runCache) { runCache[f] = System.currentTimeMillis() to list }
+        return list
+    }
+
+    private fun prefix(f: Field, hour: Long) = "${f.name.lowercase()}_$hour"
+
+    /** Gespeicherte Datei für Feld und Stunde – egal aus welchem Modelllauf, die zuletzt geladene. */
+    private fun anyCached(dir: File, f: Field, hour: Long): File? {
+        val p = prefix(f, hour)
+        return dir.listFiles()?.filter { it.name == "$p.tif" || it.name.startsWith("${p}_") }?.maxByOrNull { it.lastModified() }
+    }
+
+    /**
+     * Feld laden: zuerst aus dem Speicher, sonst vom DWD. Mit [run] genau dieser Modelllauf (die Datei dazu ändert
+     * sich nie); ohne [run] irgendein Lauf, aus dem Speicher höchstens [maxAgeH] Stunden alt.
+     */
+    fun load(context: Context?, f: Field, time: Instant, maxAgeH: Int = 3, run: Instant? = null): WorldGrid {
         val dir = context?.let { File(it.cacheDir, "world").apply { mkdirs() } }
-        val file = dir?.let { File(it, "${f.name.lowercase()}_${time.epochSecond / 3600}.tif") }
-        if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < maxAgeH * 3600_000L) {
-            runCatching { return WorldGrid.fromGeoTiff(file.readBytes()) }
-        }
+        val hour = time.epochSecond / 3600
+        val file = dir?.let { File(it, prefix(f, hour) + (run?.let { r -> "_${r.epochSecond / 3600}" } ?: "") + ".tif") }
+        val hit = if (run != null) file?.takeIf { it.exists() }
+        else dir?.let { anyCached(it, f, hour) }?.takeIf { System.currentTimeMillis() - it.lastModified() < maxAgeH * 3600_000L }
+        if (hit != null) runCatching { return WorldGrid.fromGeoTiff(hit.readBytes()) }
         val bytes = try {
-            Http.get("${f.label} ${time.toString().substring(11, 16)} UTC", url(f, time), timeoutMs = 30_000)
+            Http.get("${f.label} ${time.toString().substring(11, 16)} UTC", url(f, time, run), timeoutMs = 30_000)
         } catch (e: Exception) {
             // ohne Netz: gespeicherte Datei auch wenn älter (bis 12 Stunden, dann räumt die App sie weg)
-            if (file != null && file.exists()) return WorldGrid.fromGeoTiff(file.readBytes())
+            if (run == null) dir?.let { anyCached(it, f, hour) }?.let { return WorldGrid.fromGeoTiff(it.readBytes()) }
             throw e
         }
+        // Gibt es den Zeitpunkt in diesem Lauf nicht, antwortet der DWD mit einer kurzen Fehlermeldung statt eines Bildes
+        val tiff = bytes.size > 8 && ((bytes[0] == 'I'.code.toByte() && bytes[1] == 'I'.code.toByte()) || (bytes[0] == 'M'.code.toByte() && bytes[1] == 'M'.code.toByte()))
+        if (!tiff) throw java.io.IOException("${f.label}: keine Daten für ${time.toString().substring(0, 16)} UTC" + (run?.let { " (Lauf ${it.toString().substring(0, 13)} UTC)" } ?: ""))
         val g = WorldGrid.fromGeoTiff(bytes)
         if (file != null) runCatching {
             file.writeBytes(bytes)
@@ -164,11 +217,23 @@ object DwdWorld {
         return g
     }
 
+    /** Feld aus dem neuesten Modelllauf; liefert der (noch) nichts, der Lauf davor, zuletzt wie früher ohne Angabe. */
+    fun loadLatest(context: Context?, f: Field, time: Instant): WorldGrid {
+        for (r in runs(f).filter { !it.isAfter(time) }.take(2)) runCatching { return load(context, f, time, run = r) }
+        return load(context, f, time)
+    }
+
     /** Ohne Netz: jüngste gespeicherte Stunde, für die Temperatur und Wind vorliegen (oder null). */
     fun newestCached(context: Context): WorldWeather? = runCatching {
         val dir = File(context.cacheDir, "world")
-        val hours = dir.listFiles()?.mapNotNull { f -> f.name.removePrefix("temp_").removeSuffix(".tif").takeIf { f.name.startsWith("temp_") }?.toLongOrNull() }?.sortedDescending() ?: return null
-        val h = hours.firstOrNull { File(dir, "wind_$it.tif").exists() } ?: return null
-        WorldWeather(Instant.ofEpochSecond(h * 3600), WorldGrid.fromGeoTiff(File(dir, "temp_$h.tif").readBytes()), WorldGrid.fromGeoTiff(File(dir, "wind_$h.tif").readBytes()))
+        val hours = dir.listFiles()?.mapNotNull { f ->
+            f.name.takeIf { it.startsWith("temp_") }?.removePrefix("temp_")?.removeSuffix(".tif")?.substringBefore('_')?.toLongOrNull()
+        }?.distinct()?.sortedDescending() ?: return null
+        for (h in hours) {
+            val t = anyCached(dir, Field.TEMP, h) ?: continue
+            val w = anyCached(dir, Field.WIND, h) ?: continue
+            return WorldWeather(Instant.ofEpochSecond(h * 3600), WorldGrid.fromGeoTiff(t.readBytes()), WorldGrid.fromGeoTiff(w.readBytes()))
+        }
+        null
     }.getOrNull()
 }

@@ -9,7 +9,7 @@ plugins {
 // ---- Version: X.Y.Z (X = großes Update, Y = kleines Update, Z = Fehlerbehebung) ----
 val versionMajor = 3
 val versionMinor = 0
-val versionPatch = 3
+val versionPatch = 4
 
 // ---- Signierschlüssel: lokal aus keystore/keystore.properties, in GitHub Actions aus Secrets ----
 val keystoreProps = Properties().apply {

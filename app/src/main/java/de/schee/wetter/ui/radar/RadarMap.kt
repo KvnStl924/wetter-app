@@ -17,7 +17,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import de.schee.wetter.data.RadarData
 import de.schee.wetter.data.RainViewer
 import de.schee.wetter.data.Satellite
-import de.schee.wetter.data.WindGrid
 import de.schee.wetter.log.AppLog
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -299,8 +298,8 @@ fun RadarMap(
     radar: Bitmap?,
     /** Weltweites Radar (RainViewer) und welches Bild gerade sichtbar ist (null = keins). */
     rainViewer: List<RainViewer.Frame>, rvIndex: Int?,
-    /** Regen-Modell (Zukunft) außerhalb Deutschlands: grobes Gitter des sichtbaren Ausschnitts mit Bild. */
-    precipView: Pair<WindGrid, Bitmap>?,
+    /** Regen-Modell (Zukunft) außerhalb Deutschlands (Weltbild, Mercator ±85°). */
+    precipView: Bitmap?,
     /** Farbfläche Temperatur oder Wind (Weltbild, Mercator ±85°). */
     field: Bitmap?,
     /** Wolken (Weltbild, Mercator ±85°). */
@@ -422,7 +421,7 @@ fun RadarMap(
                 val side = if ((m.cameraPosition.target?.longitude ?: 0.0) >= 0) 1 else -1
                 if (side != copySide) {
                     copySide = side
-                    m.style?.let { st -> listOf("field2", "clouds2").forEach { (st.getSource(it) as? ImageSource)?.setCoordinates(worldCopy(side)) } }
+                    m.style?.let { st -> listOf("field2", "clouds2", "precip2").forEach { (st.getSource(it) as? ImageSource)?.setCoordinates(worldCopy(side)) } }
                 }
             }
             m.addOnCameraMoveListener { send() }
@@ -473,7 +472,8 @@ fun RadarMap(
                 // über die Datumsgrenze hinweg; ohne Kopie endete die Fläche dort mit harter Kante (bis 0.5.3).
                 s.addSource(ImageSource("field2", worldCopy(1), empty))
                 s.addSource(ImageSource("clouds2", worldCopy(1), empty))
-                s.addSource(ImageSource("precip", quad(0.0, 1.0, 0.0, 1.0), empty))
+                s.addSource(ImageSource("precip", WORLD, empty))
+                s.addSource(ImageSource("precip2", worldCopy(1), empty))
                 s.addSource(ImageSource("radar", quad(RadarData.WEST, RadarData.EAST, RadarData.SOUTH, RadarData.NORTH), empty))
                 fun raster(id: String, src: String, opacity: Float) = RasterLayer(id, src).withProperties(
                     PropertyFactory.rasterOpacity(opacity), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear"))
@@ -499,7 +499,7 @@ fun RadarMap(
                     (s.getLayer(id) as? RasterLayer)?.rasterOpacityTransition = org.maplibre.android.style.layers.TransitionOptions(320, 0)
                 }
                 // Regen darüber (über Grenzen, unter Ortsnamen)
-                listOf(raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
+                listOf(raster("precip-layer", "precip", 0.9f), raster("precip2-layer", "precip2", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
                 // Amtliche Warngebiete (DWD-WMS, Gemeinden) – erst beim Einschalten sichtbar
                 val warnTiles = org.maplibre.android.style.sources.TileSet("2.2.0",
                     "https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap&layers=dwd:Warnungen_Gemeinden&styles=" +
@@ -593,14 +593,7 @@ fun RadarMap(
             }
         }
     }
-    LaunchedEffect(style, precipView) {
-        val src = style?.getSource("precip") as? ImageSource ?: return@LaunchedEffect
-        val v = precipView
-        if (v == null) { src.setImage(empty); return@LaunchedEffect }
-        val g = v.first
-        src.setCoordinates(quad(g.lon0 - g.step / 2, g.lon1 + g.step / 2, (g.lat0 - g.step / 2).coerceAtLeast(-85.0), (g.lat1 + g.step / 2).coerceAtMost(85.0)))
-        src.setImage(v.second)
-    }
+    LaunchedEffect(style, precipView) { listOf("precip", "precip2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(precipView ?: empty) } }
 
     LaunchedEffect(style, warnings) {
         style?.getLayer("warn-layer")?.setProperties(PropertyFactory.visibility(if (warnings) Property.VISIBLE else Property.NONE))
