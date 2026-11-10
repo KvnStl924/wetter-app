@@ -133,6 +133,7 @@ private fun TileBody(id: TileId, d: TileData) {
         TileId.WARNING -> WarningContent(d, false)
         TileId.RADAR -> RadarContent(d)
         TileId.RAIN_2H -> Rain2hContent(d)
+        TileId.BEST_TIME -> BestTimeContent(d)
         TileId.WIND -> WindContent(d)
         TileId.WIND_MAP -> WindMapContent(d)
         TileId.FEELS -> FeelsContent(d)

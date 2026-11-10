@@ -44,7 +44,8 @@ class ScreenshotDump {
         // Regen auf die Minute: trocken, ab 15 Minuten leichter, dann mäßiger Regen
         val t0 = java.time.Instant.now()
         val nc = de.schee.wetter.data.Nowcast.Series((0..24).map { i -> t0.plusSeconds(i * 300L) to when { i < 3 -> 0.0; i < 8 -> 0.4 * (i - 2); i < 14 -> 3.0; i < 18 -> 1.0; else -> 0.0 } })
-        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now, previewPageCount = 3, previewNowcast = nc) } } }
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now, previewPageCount = 3, previewNowcast = nc,
+            previewThunder = de.schee.wetter.data.Thunder.Near(12.4, 225.0, java.time.Instant.now(), -1, true)) } } }
         settle()
         save(activity.window.decorView, File(out, "main_top.png"))
     }

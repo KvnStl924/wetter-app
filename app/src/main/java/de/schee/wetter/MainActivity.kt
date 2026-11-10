@@ -70,11 +70,11 @@ class MainActivity : ComponentActivity() {
                     when (s) {
                         "settings" -> SettingsScreen(onBack = { screen = "main" })
                         "places" -> de.schee.wetter.ui.PlacesScreen(onClose = { screen = "main" })
-                        "radar", "wind", "warn" -> {
+                        "radar", "wind", "warn", "bolt" -> {
                             val w = weather.forecast
                             val p = weather.place
                             val place = if (p != null && w != null) RadarPlace(p.name, p.lat, p.lon, Units.from(this@MainActivity).t(w.current.temp)) else null
-                            RadarScreen(place, if (s == "wind") RadarLayer.WIND else RadarLayer.RAIN, onClose = { screen = "main" }, initialWarnings = s == "warn")
+                            RadarScreen(place, if (s == "wind") RadarLayer.WIND else RadarLayer.RAIN, onClose = { screen = "main" }, initialWarnings = s == "warn", initialLightning = s == "bolt")
                         }
                         else -> MainScreen(
                             radar = radarVm.ui,
@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                             onOpenPlaces = { screen = "places" },
                             onOpenRadar = { layer, from ->
                                 AppLog.tap("$from → Vollbild ${layer.label} geöffnet")
-                                screen = if (from == "Warnung") "warn" else if (layer == RadarLayer.WIND) "wind" else "radar"
+                                screen = if (from == "Warnung") "warn" else if (from == "Gewitter-Hinweis") "bolt" else if (layer == RadarLayer.WIND) "wind" else "radar"
                             },
                         )
                     }

@@ -183,6 +183,29 @@ object Satellite {
         return best.values.sortedBy { it.time }
     }
 
+    /**
+     * Blitze rund um einen Ort in voller Auflösung des Satelliten (≈ 1 km je Bildpunkt statt ≈ 45 km je Punkt
+     * in der Weltansicht) – für „Gewitter 12 km entfernt“. Ausschnitt ±[THUNDER_BOX_LAT]° Breite.
+     */
+    fun localStrikes(lat: Double, lon: Double, time: Instant): List<Strike> {
+        val dLat = THUNDER_BOX_LAT; val dLon = THUNDER_BOX_LAT / kotlin.math.cos(Math.toRadians(lat))
+        val s = lat - dLat; val n = lat + dLat; val wst = lon - dLon; val e = lon + dLon
+        val px = 320
+        val url = "$WMS&layers=mtg_fd:li_afa&format=image/png&transparent=true&width=$px&height=$px&bbox=" +
+            "%.0f,%.0f,%.0f,%.0f".format(Locale.US, mercX(wst), mercY(s), mercX(e), mercY(n)) + "&time=$time"
+        val bytes = Http.get("EUMETSAT Blitze am Ort", url, timeoutMs = 20_000, log = false)
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return emptyList()
+        val w = bmp.width; val h = bmp.height
+        val p = IntArray(w * h); bmp.getPixels(p, 0, w, 0, 0, w, h)
+        return strikesFrom(p, w, h, time, cell = 2, west = wst, east = e, south = s, north = n)
+    }
+
+    /** Halbe Höhe des Ausschnitts um den Ort (1,1° ≈ 120 km). */
+    const val THUNDER_BOX_LAT = 1.1
+
+    /** Liegt der Ort im Gebiet des Blitz-Sensors? */
+    fun lightningCovers(lat: Double, lon: Double) = lat in (LI_S + 2)..(LI_N - 2) && lon in (LI_W + 2)..(LI_E - 2)
+
     /** Blitze eines 5-Minuten-Abschnitts als Punkte. Leere Bilder (noch keine Daten) ergeben eine leere Liste. */
     fun strikes(time: Instant, label: String = "EUMETSAT Blitze"): List<Strike> {
         val bytes = Http.get(label, lightningUrl(time), timeoutMs = 25_000, log = false)
@@ -196,9 +219,12 @@ object Satellite {
      * Bild → Punkte: Zellen von 4 × 4 Pixeln (≈ 0,45°); jede Zelle mit Blitzfläche wird ein Punkt in ihrem
      * Schwerpunkt. Stärke nach Farbe (gelb = wenig, rot = viele Entladungen).
      */
-    internal fun strikesFrom(px: IntArray, w: Int, h: Int, time: Instant, cell: Int = 4): List<Strike> {
+    internal fun strikesFrom(
+        px: IntArray, w: Int, h: Int, time: Instant, cell: Int = 4,
+        west: Double = LI_W, east: Double = LI_E, south: Double = LI_S, north: Double = LI_N,
+    ): List<Strike> {
         val out = ArrayList<Strike>()
-        val yTop = mercY(LI_N); val yBot = mercY(LI_S)
+        val yTop = mercY(north); val yBot = mercY(south)
         for (cy in 0 until h step cell) for (cx in 0 until w step cell) {
             var sx = 0.0; var sy = 0.0; var cnt = 0; var red = 0f
             for (y in cy until minOf(h, cy + cell)) for (x in cx until minOf(w, cx + cell)) {
@@ -212,7 +238,7 @@ object Satellite {
             val x = sx / cnt + 0.5; val y = sy / cnt + 0.5
             val my = (yTop + y / h * (yBot - yTop)) * 180.0 / 20037508.34
             val lat = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
-            val lon = LI_W + x / w * (LI_E - LI_W)
+            val lon = west + x / w * (east - west)
             out += Strike(lat, lon, time, (red * 0.7f + cnt / (cell * cell).toFloat() * 0.3f).coerceIn(0f, 1f))
         }
         return out

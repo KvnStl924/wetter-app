@@ -28,6 +28,8 @@ data class Hour(
     val gusts: Double?,
     val windDir: Int?,
     val isDay: Boolean,
+    /** relative Luftfeuchte in % (nur ICON) */
+    val humidity: Int? = null,
 )
 
 data class Day(

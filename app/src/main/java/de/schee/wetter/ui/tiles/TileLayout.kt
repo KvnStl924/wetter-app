@@ -7,6 +7,7 @@ enum class TileId(val title: String, val half: Boolean) {
     WARNING("Unwetterwarnung", false),
     RADAR("Regenradar", false),
     RAIN_2H("Regen nächste 2 Std.", false),
+    BEST_TIME("Bestes Zeitfenster", false),
     WIND("Wind", false),
     WIND_MAP("Windkarte", false),
     FEELS("Gefühlt", true),
@@ -34,7 +35,14 @@ object TileLayout {
     /** Gespeicherte Reihenfolge lesen; neue Kacheln hinten anhängen, unbekannte ignorieren. */
     fun restore(saved: String?): List<TileId> {
         val known = saved.orEmpty().split(',').mapNotNull { n -> TileId.entries.firstOrNull { it.name == n } }.distinct()
-        return known + TileId.entries.filter { it !in known }
+        // Neue Kacheln an ihren vorgesehenen Platz (hinter ihren Vorgänger), nicht ans Ende
+        val out = known.toMutableList()
+        TileId.entries.forEachIndexed { i, t ->
+            if (t in out) return@forEachIndexed
+            val prev = TileId.entries.take(i).lastOrNull { it in out }
+            if (prev == null) out += t else out.add(out.indexOf(prev) + 1, t)
+        }
+        return out
     }
 
     /** Reihen bilden: zwei aufeinanderfolgende halbe Kacheln teilen sich eine Reihe. */

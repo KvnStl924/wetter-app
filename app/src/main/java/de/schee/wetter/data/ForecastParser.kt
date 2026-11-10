@@ -109,7 +109,7 @@ object ForecastParser {
         val t = h.getJSONArray("time")
         val temp = h.arr("temperature_2m"); val code = h.arr("weather_code"); val pp = h.arr("precipitation_probability")
         val pr = h.arr("precipitation"); val ws = h.arr("wind_speed_10m"); val wg = h.arr("wind_gusts_10m")
-        val wd = h.arr("wind_direction_10m"); val day = h.arr("is_day")
+        val wd = h.arr("wind_direction_10m"); val day = h.arr("is_day"); val rh = h.arr("relative_humidity_2m")
         val out = ArrayList<Hour>(t.length())
         for (i in 0 until t.length()) {
             val tv = temp.d(i) ?: continue
@@ -118,6 +118,7 @@ object ForecastParser {
                 precipProb = pp.d(i)?.toInt(), precip = pr.d(i) ?: 0.0, wind = ws.d(i) ?: 0.0,
                 gusts = wg.d(i), windDir = wd.d(i)?.toInt(),
                 isDay = day.d(i)?.let { it >= 1.0 } ?: (LocalDateTime.parse(t.getString(i)).hour in 7..17),
+                humidity = rh.d(i)?.toInt(),
             )
         }
         return out

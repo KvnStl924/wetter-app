@@ -132,12 +132,14 @@ fun RadarScreen(
     previewArea: DoubleArray? = null,
     /** Warngebiete gleich eingeschaltet (z. B. aus der Warn-Kachel geöffnet). */
     initialWarnings: Boolean = false,
+    /** Blitze gleich eingeschaltet (aus dem Gewitter-Hinweis geöffnet). */
+    initialLightning: Boolean = false,
     previewPick: Picked? = null,
     previewMotion: de.schee.wetter.data.Nowcast.Motion? = null,
 ) {
     val ui by vm.ui.collectAsState()
     var layer by remember { mutableStateOf(initialLayer) }
-    var lightning by remember { mutableStateOf(previewLightning) }
+    var lightning by remember { mutableStateOf(previewLightning || initialLightning) }
     var warnings by remember { mutableStateOf(initialWarnings) }
     var moving by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(previewPick) }

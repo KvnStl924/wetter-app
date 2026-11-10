@@ -62,7 +62,7 @@ class WeatherRepository(private val context: Context) {
                     "Open-Meteo ICON",
                     "https://api.open-meteo.com/v1/forecast?$ll&models=icon_seamless&timezone=auto&forecast_days=7&past_days=1" +
                         "&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,is_day,precipitation" +
-                        "&hourly=temperature_2m,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,is_day" +
+                        "&hourly=temperature_2m,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,is_day,relative_humidity_2m" +
                         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset" +
                         "&minutely_15=precipitation"
                 )

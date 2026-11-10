@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -113,6 +114,7 @@ fun MainScreen(
     /** Radar (für „Regen in 12 Min.“) – vom Radar-ViewModel, das schon beim Öffnen lädt. */
     radar: kotlinx.coroutines.flow.StateFlow<de.schee.wetter.ui.radar.RadarUi>? = null,
     previewNowcast: de.schee.wetter.data.Nowcast.Series? = null,
+    previewThunder: de.schee.wetter.data.Thunder.Near? = null,
 ) {
     val context = LocalContext.current
     val livePages by vm.pages.collectAsState()
@@ -169,7 +171,7 @@ fun MainScreen(
             }
             WeatherPage(
                 ui = ui, isGps = id == WeatherViewModel.GPS, previewNow = previewNow, tileState = tileState, editTiles = editTiles,
-                radar = radar, previewNowcast = previewNowcast,
+                radar = radar, previewNowcast = previewNowcast, previewThunder = previewThunder,
                 mode = mode, driveConnected = driveConnected,
                 onMode = { mode = it }, onEdit = { editTiles = it }, onOpenDay = { f, d -> openDay = f to d },
                 onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); haptic(Haptics.Kind.SNAP); vm.refresh("Herunterziehen") },
@@ -212,6 +214,7 @@ private fun WeatherPage(
     ui: WeatherUi, isGps: Boolean, previewNow: LocalDateTime?, tileState: de.schee.wetter.ui.tiles.TileState, editTiles: Boolean,
     mode: Mode, driveConnected: Boolean,
     radar: kotlinx.coroutines.flow.StateFlow<de.schee.wetter.ui.radar.RadarUi>?, previewNowcast: de.schee.wetter.data.Nowcast.Series?,
+    previewThunder: de.schee.wetter.data.Thunder.Near?,
     onMode: (Mode) -> Unit, onEdit: (Boolean) -> Unit, onOpenDay: (de.schee.wetter.data.Forecast, Day) -> Unit,
     onRefresh: () -> Unit, onAllowLocation: () -> Unit, onSearch: () -> Unit, onPickFolder: () -> Unit,
     onOpenRadar: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit,
@@ -238,6 +241,27 @@ private fun WeatherPage(
                 runCatching { de.schee.wetter.data.Nowcast.series(r.frames, r.bytes, place.lat, place.lon, Instant.now()) }.getOrNull()
             }
         }
+    }
+
+    // Gewitter in der Nähe: nur solange die App sichtbar ist; alle 5 Minuten, bei Gewitter jede 2. Minute
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val thunder by androidx.compose.runtime.produceState(previewThunder, place?.lat, place?.lon, radar) {
+        if (radar == null || place == null) return@produceState
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = de.schee.wetter.data.Thunder.load(place.lat, place.lon)
+                delay(if (value != null) 120_000 else 300_000)
+            }
+        }
+    }
+    // Spürbar: beim ersten Auftauchen und jedes Mal, wenn das Gewitter eine Stufe näher kommt, ein Donnergrollen
+    val haptic = de.schee.wetter.ui.rememberHaptics()
+    var lastBand by remember(place?.lat, place?.lon) { mutableIntStateOf(99) }
+    LaunchedEffect(thunder?.band, thunder?.active) {
+        val t = thunder
+        if (t == null || !t.active) { if (t == null) lastBand = 99; return@LaunchedEffect }
+        if (t.band < lastBand) haptic(de.schee.wetter.ui.Haptics.Kind.THUNDER)
+        lastBand = t.band
     }
 
     val scroll = rememberScrollState()
@@ -283,6 +307,14 @@ private fun WeatherPage(
                         val rainLine = nc?.let { de.schee.wetter.data.Nowcast.headline(it, Instant.now()) }
                         AnimatedVisibility(rainLine != null, enter = fadeIn() + slideInVertically { -it / 2 }, exit = fadeOut()) {
                             RainPill(rainLine ?: "")
+                        }
+                        val th = thunder
+                        AnimatedVisibility(th != null, enter = fadeIn() + slideInVertically { -it / 2 }, exit = fadeOut()) {
+                            val text = th?.let { de.schee.wetter.data.Thunder.text(it) } ?: ""
+                            ThunderPill(text, near = th?.let { it.active && it.km < 20 } == true) {
+                                AppLog.tap("Gewitter-Hinweis „$text“ → Radar mit Blitzen")
+                                onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Gewitter-Hinweis")
+                            }
                         }
                     } else if (ui.loading) {
                         Spacer(Modifier.height(24.dp)); CircularProgressIndicator(color = WColors.Text, strokeWidth = 2.dp)
@@ -457,6 +489,27 @@ private fun RainPill(text: String) {
                 cubicTo(w * .25f, h, 0f, h * .9f, 0f, h * .7f)
                 cubicTo(0f, h * .62f, w * .1f, h * .45f, w / 2, 0f); close()
             }, WColors.Rain)
+        }
+        Spacer(Modifier.width(7.dp))
+        Text(text, style = WType.small)
+    }
+}
+
+/** „Gewitter 12 km im Südwesten · kommt näher“ – Blitz + Text; nah: zarter gelber Rand. Antippen öffnet das Radar mit Blitzen. */
+@Composable
+private fun ThunderPill(text: String, near: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.padding(top = 8.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .30f))
+            .then(if (near) Modifier.border(1.dp, WColors.Sun.copy(alpha = .45f), RoundedCornerShape(50)) else Modifier)
+            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(9.dp, 13.dp)) {
+            val w = size.width; val h = size.height
+            drawPath(Path().apply {
+                moveTo(w * .62f, 0f); lineTo(w * .05f, h * .58f); lineTo(w * .46f, h * .58f)
+                lineTo(w * .34f, h); lineTo(w * .95f, h * .40f); lineTo(w * .54f, h * .40f); close()
+            }, WColors.Sun)
         }
         Spacer(Modifier.width(7.dp))
         Text(text, style = WType.small)

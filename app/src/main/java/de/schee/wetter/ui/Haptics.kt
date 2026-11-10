@@ -25,6 +25,8 @@ object Haptics {
         PRESS,
         /** Erledigt (gespeichert, aktualisiert): kurzes Doppel-Klicken, das ausklingt. */
         SUCCESS,
+        /** Gewitter kommt näher: leises Grollen, das anschwillt und mit einem satten Schlag endet. */
+        THUNDER,
     }
 
     private var last = 0L
@@ -51,6 +53,14 @@ object Haptics {
                     prim(v, c, VibrationEffect.Composition.PRIMITIVE_CLICK, .9f)
                 Kind.SUCCESS -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_CLICK, .7f) &&
                     prim(v, c, VibrationEffect.Composition.PRIMITIVE_TICK, .45f, delayMs = 70)
+                Kind.THUNDER -> v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, VibrationEffect.Composition.PRIMITIVE_CLICK) && run {
+                    // Grollen: immer dichter und kräftiger werdendes Ticken …
+                    listOf(0 to .25f, 55 to .35f, 45 to .45f, 35 to .6f, 30 to .75f).forEach { (d, s) -> prim(v, c, VibrationEffect.Composition.PRIMITIVE_LOW_TICK, s, d) }
+                    // … dann der Schlag und ein kurzes Nachhallen
+                    (Build.VERSION.SDK_INT >= 31 && prim(v, c, VibrationEffect.Composition.PRIMITIVE_THUD, 1f, 30)) || prim(v, c, VibrationEffect.Composition.PRIMITIVE_CLICK, 1f, 30)
+                    prim(v, c, VibrationEffect.Composition.PRIMITIVE_LOW_TICK, .35f, 140)
+                    true
+                }
             }
             if (ok) { runCatching { v.vibrate(c.compose()) }.onSuccess { return } }
         }
@@ -61,6 +71,7 @@ object Haptics {
             Kind.SNAP -> if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.TOGGLE_ON else HapticFeedbackConstants.VIRTUAL_KEY
             Kind.PRESS -> HapticFeedbackConstants.LONG_PRESS
             Kind.SUCCESS -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+            Kind.THUNDER -> HapticFeedbackConstants.LONG_PRESS
         }
         view.performHapticFeedback(constant)
     }
