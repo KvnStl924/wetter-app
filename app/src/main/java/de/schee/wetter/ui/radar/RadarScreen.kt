@@ -141,6 +141,7 @@ fun RadarScreen(
     initialLightning: Boolean = false,
     previewPick: Picked? = null,
     previewMotion: de.schee.wetter.data.Nowcast.Motion? = null,
+    previewMinMax: Boolean = false,
 ) {
     val ui by vm.ui.collectAsState()
     var layer by remember { mutableStateOf(initialLayer) }
@@ -163,6 +164,9 @@ fun RadarScreen(
     var centerTick by remember { mutableIntStateOf(0) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val units = remember { de.schee.wetter.data.Units.from(context) }
+    // Max/Min je Land statt Werten an jeder Stadt (Kevin am 10.11.2026), bleibt gemerkt
+    val radarPrefs = remember { context.getSharedPreferences("radar", android.content.Context.MODE_PRIVATE) }
+    var minMax by remember { mutableStateOf(previewMinMax || (preview == null && radarPrefs.getBoolean("minMax", false))) }
     val title = listOfNotNull(layer?.label, "Blitze".takeIf { lightning }, "Warnungen".takeIf { warnings }).joinToString(" · ").ifEmpty { "Karte" }
 
     // Schalter: eine Ebene; Blitze nur allein oder mit Regen (Kevin am 09.11.2026)
@@ -297,7 +301,8 @@ fun RadarScreen(
     // Jede Stadt mit Wert (Kevin am 09.11.2026): bei Wind km/h, sonst die Temperatur – auch bei Regen, Wolken, Blitzen
     // Werte an den Orten nur bei Temperatur bzw. Wind (Kevin am 10.11.2026) – sonst nur die Namen
     val labelWw = if (fieldKind != null) ww else null
-    val labels = if (preview == null) rememberLabelsAsync(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null) else emptyList()
+    val countries = minMax && layer == RadarLayer.TEMP
+    val labels = if (preview == null) rememberLabelsAsync(labelArea, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null, countries = countries) else emptyList()
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF282B30))) {
         if (preview != null) {
@@ -330,7 +335,7 @@ fun RadarScreen(
         val f = fix
         if (preview != null && f != null && t != null) MyLocationDot(f, t)
         if (preview != null && t != null) motion?.let { MotionArrowPreview(it, t) }
-        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null))
+        if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null, countries = countries))
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
         Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -378,7 +383,11 @@ fun RadarScreen(
                     RadarLayer.RAIN -> RainTimeline(ui, index, playing, onPlay = {
                         playing = !playing; AppLog.tap("Vollbild-Radar → ${if (playing) "Abspielen" else "Pause"}")
                     }, onIndex = { playing = false; index = it }, onDone = { AppLog.tap("Vollbild-Radar → Zeitleiste auf ${label(ui, index)}") })
-                    RadarLayer.WIND, RadarLayer.TEMP -> WorldTimeline(ui, hour, playing, temp = layer == RadarLayer.TEMP, onPlay = {
+                    RadarLayer.WIND, RadarLayer.TEMP -> WorldTimeline(ui, hour, playing, temp = layer == RadarLayer.TEMP, minMax = minMax, onMinMax = {
+                        haptic(de.schee.wetter.ui.Haptics.Kind.SNAP); minMax = !minMax
+                        radarPrefs.edit().putBoolean("minMax", minMax).apply()
+                        AppLog.tap("Temperatur → Max/Min je Land ${if (minMax) "an" else "aus"}")
+                    }, onPlay = {
                         playing = !playing; AppLog.tap("$title → ${if (playing) "Abspielen" else "Pause"}")
                     }, onHour = { playing = false; hour = it }, onDone = { AppLog.tap("$title → Zeitleiste auf Stunde +$hour") })
                     RadarLayer.CLOUDS -> CloudInfo(ui)
@@ -792,12 +801,13 @@ internal fun rememberLabels(
     /** Hotspots (auffällige Stellen ohne Ort) nur bei Temperatur und Wind. */
     hotspots: Boolean = true,
     placeValue: Boolean = true,
+    countries: Boolean = false,
 ): List<MapLabel> {
     // Testbilder: sofort (synchron) berechnen
     val density = LocalDensity.current.density
     val idx = Places.index.collectAsState().value
-    val picks = remember(idle, cities, ww != null, temp, place, hotspots, idx) { pickLabels(idle, cities, ww, temp, place, fix, mini, hotspots, density, idx) }
-    return remember(picks, ww, temp, place, placeValue) { labelValues(picks, ww, temp, units, place, placeValue) }
+    val picks = remember(idle, cities, ww != null, temp, place, hotspots, idx, countries) { pickLabels(idle, cities, ww, temp, place, fix, mini, hotspots, density, idx, countries) }
+    return remember(picks, ww, temp, place, placeValue) { labelValues(picks, ww, temp, units, place, placeValue, idx) }
 }
 
 /**
@@ -809,31 +819,32 @@ internal fun rememberLabelsAsync(
     idle: MapTransform?, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean,
     units: de.schee.wetter.data.Units, place: RadarPlace?, fix: LocationSource.Fix?, mini: Boolean = false, hotspots: Boolean = true,
     placeValue: Boolean = true,
+    countries: Boolean = false,
 ): List<MapLabel> {
     val density = LocalDensity.current.density
     val idx = Places.index.collectAsState().value
     val fixNow by androidx.compose.runtime.rememberUpdatedState(fix)
     var picks by remember { mutableStateOf<List<LabelPick>>(emptyList()) }
     var labels by remember { mutableStateOf<List<MapLabel>>(emptyList()) }
-    LaunchedEffect(idle, cities, ww != null, temp, place, hotspots, idx) {
+    LaunchedEffect(idle, cities, ww != null, temp, place, hotspots, idx, countries) {
         val area = idle ?: return@LaunchedEffect
         delay(60) // mehrere Änderungen kurz hintereinander zusammenfassen
-        picks = withContext(Dispatchers.Default) { pickLabels(area, cities, ww, temp, place, fixNow, mini, hotspots, density, idx) }
+        picks = withContext(Dispatchers.Default) { pickLabels(area, cities, ww, temp, place, fixNow, mini, hotspots, density, idx, countries) }
     }
     LaunchedEffect(picks, ww, temp, place, placeValue) {
-        labels = withContext(Dispatchers.Default) { labelValues(picks, ww, temp, units, place, placeValue) }
+        labels = withContext(Dispatchers.Default) { labelValues(picks, ww, temp, units, place, placeValue, idx) }
     }
     return labels
 }
 
 /** Gewählte Stelle für eine Beschriftung. kind wie bei [MapLabel]. */
-internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int)
+internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int, val country: Int = -1)
 
 internal fun pickLabels(
     idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean, place: RadarPlace?, fix: LocationSource.Fix?,
-    mini: Boolean, hotspots: Boolean, density: Float, idx: Places.Index?,
+    mini: Boolean, hotspots: Boolean, density: Float, idx: Places.Index?, countries: Boolean = false,
 ): List<LabelPick> {
-    val L = ::LabelPick
+    val L = { lat: Double, lon: Double, name: String?, kind: Int -> LabelPick(lat, lon, name, kind) }
     run {
         val out = mutableListOf<LabelPick>()
         // Platz jeder Beschriftung als Rechteck (Name oben, Pille unten) – nichts darf sich überlappen
@@ -844,7 +855,7 @@ internal fun pickLabels(
         // Breite schätzen: Name (≈ 7 dp je Zeichen in 12,5 sp fett) bzw. Pille (≈ 46 dp)
         fun box(x: Float, y: Float, name: String?, kind: Int): FloatArray {
             val nameW = (name?.length ?: 0) * 6.8f * density + 4 * density
-            val w = maxOf(nameW, (if (temp) 34f else 58f) * density)
+            val w = maxOf(nameW, (if (kind == 4) 96f else if (temp) 34f else 58f) * density)
             return when (kind) {
                 0 -> floatArrayOf(x - w / 2, y - 10 * density, x + w / 2, y + 10 * density)
                 2 -> floatArrayOf(x - w / 2, y - 29 * density, x + w / 2, y + 29 * density)
@@ -857,6 +868,30 @@ internal fun pickLabels(
             val b = box(x, y, l.name, l.kind)
             if (b[0] < 4 * density || b[2] > idle.w - 4 * density || inUi(b) || overlaps(b)) return false
             out += l; boxes += b; return true
+        }
+        // Max/Min-Schalter: nur die Länder (größte zuerst), jedes an einem Ort mittig im Land –
+        // liegt der außerhalb des Ausschnitts, am größten sichtbaren Ort des Landes
+        val c = idx?.countries
+        if (countries && c != null && ww != null && temp) {
+            fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
+            // je Land bis zu 40 der größten sichtbaren Orte (Ausweich-Stellen, wenn die Mitte am Rand/unter den Knöpfen liegt)
+            val inView = HashMap<Int, MutableList<Int>>()
+            for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = 8000)) {
+                val k = c.of[i]; if (k < 0) continue
+                val l = inView.getOrPut(k) { mutableListOf() }; if (l.size < 40) l += i
+            }
+            val cx = idle.w / 2; val cy = idle.h * .45f
+            val cand = (inView.keys + c.anchor.indices.filter { k -> c.anchor[k] >= 0 && idle.visible(idle.x(idx.lon[c.anchor[k]].toDouble()), idle.y(idx.lat[c.anchor[k]].toDouble())) }).toSet()
+            for (k in cand.sortedByDescending { c.pop[it] }) {
+                val name = c.name(k)
+                // erst die Landesmitte, dann sichtbare Orte des Landes – die zur Bildmitte hin zuerst
+                val alt = inView[k].orEmpty().sortedBy { i -> hypot(idle.x(idx.lon[i].toDouble()) - cx, idle.y(idx.lat[i].toDouble()) - cy) }.take(12)
+                for (i in (listOfNotNull(c.anchor[k].takeIf { it >= 0 }) + alt).distinct()) {
+                    if (add(LabelPick(idx.lat[i].toDouble(), idx.lon[i].toDouble(), name, 4, k))) break
+                }
+                if (out.size > 60) break
+            }
+            return out
         }
         // eigener Ort zuerst (Name über, Wert unter dem blauen Punkt)
         place?.let { p ->
@@ -916,10 +951,15 @@ internal fun pickLabels(
 }
 
 /** Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt). */
-internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolean, units: de.schee.wetter.data.Units, place: RadarPlace?, placeValue: Boolean = true): List<MapLabel> {
+internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolean, units: de.schee.wetter.data.Units, place: RadarPlace?, placeValue: Boolean = true, idx: Places.Index? = null): List<MapLabel> {
     run {
         val o = DoubleArray(2)
         return picks.mapNotNull { l ->
+            if (l.kind == 4) {
+                val c = idx?.countries ?: return@mapNotNull null
+                val (max, min) = (if (ww != null) de.schee.wetter.data.Countries.extremes(c, l.country, idx, ww) else null) ?: return@mapNotNull null
+                return@mapNotNull MapLabel(l.lat, l.lon, "${units.tNum(max)}°", l.name, 4, tempColorMap(max), "${units.tNum(min)}°", tempColorMap(min))
+            }
             var color: Int? = null
             val value: String? = when {
                 ww != null && temp -> ww.tempAt(l.lat, l.lon).takeIf { !it.isNaN() }?.let { color = tempColorMap(it); "${units.tNum(it)}°" }
@@ -952,13 +992,13 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
             }
             continue
         }
-        if (l.kind != 0 && l.kind != 2) Canvas(Modifier.fillMaxSize()) {
+        if (l.kind != 0 && l.kind != 2 && l.kind != 4) Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color(0xFFF2F3F5), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y))
             drawCircle(Color.Black.copy(alpha = .6f), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y), style = Stroke(1f))
         }
         androidx.compose.ui.layout.Layout(content = {
             if (l.name != null && l.kind != 0) Text(l.name, style = nameStyle)
-            if (l.value != null && l.color != null) { val img = remember(l.value, l.color) { pillBitmap(l.value, l.color, density).asImageBitmap() }; Image(img, null) }
+            if (l.value != null && l.color != null) { val img = remember(l) { labelBitmap(l, density)!!.asImageBitmap() }; Image(img, null) }
         }) { ms, c ->
             val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
             layout(t.w.toInt(), t.h.toInt()) {
@@ -1012,7 +1052,7 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, onPlay: () -
 }
 
 @Composable
-private fun WorldTimeline(ui: RadarUi, hour: Int, playing: Boolean, temp: Boolean, onPlay: () -> Unit, onHour: (Int) -> Unit, onDone: () -> Unit) {
+private fun WorldTimeline(ui: RadarUi, hour: Int, playing: Boolean, temp: Boolean, minMax: Boolean, onMinMax: () -> Unit, onPlay: () -> Unit, onHour: (Int) -> Unit, onDone: () -> Unit) {
     val hours = ui.worldHours
     when {
         ui.worldNow == null && ui.worldError != null -> { Text(ui.worldError, style = WType.body.copy(color = WColors.Warn)); return }
@@ -1025,12 +1065,31 @@ private fun WorldTimeline(ui: RadarUi, hour: Int, playing: Boolean, temp: Boolea
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("${hhmm.format(hours[h])} · ${if (h == 0) "Jetzt" else "in $h Std."}", style = WType.small)
-            Text(if (!loaded) "Diese Stunde wird geladen …" else if (temp) "Temperatur in 2 m Höhe · DWD (ICON)" else "Wind in 10 m Höhe, km/h · DWD (ICON)", style = WType.bodyDim)
+            Text(if (!loaded) "Diese Stunde wird geladen …" else if (temp) (if (minMax) "Max/Min je Land" else "2 m Höhe · DWD (ICON)") else "Wind in 10 m Höhe, km/h · DWD (ICON)",
+                style = WType.bodyDim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
+        if (temp) { Spacer(Modifier.width(8.dp)); MinMaxToggle(minMax, onMinMax) }
     }
     TimelineSlider(h, hours.size, 0, onHour, onDone, modelFrom = -1)
     if (temp) Legend(listOf(-20, -10, 0, 10, 20, 30, 40).map { "$it°" to Color(tempColorMap(it.toDouble())) })
     else Legend(listOf(0, 10, 20, 35, 50, 70, 100).map { "$it" to Color(windColor(it.toDouble())) })
+}
+
+/** Schalter „Max/Min“ (an = blau hinterlegt): Werte je Land statt je Stadt. */
+@Composable
+private fun MinMaxToggle(on: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (on) WColors.Accent.copy(alpha = .9f) else Color.White.copy(alpha = .12f), label = "minMax")
+    Row(
+        Modifier.pressable(scale = .92f, haptic = null, onClick = onClick).height(32.dp).clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Canvas(Modifier.size(9.dp, 13.dp)) {
+            val w = size.width; val h = size.height; val th = h * .4f
+            drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(0f, th); lineTo(w, th); lineTo(w / 2, 0f); close() }, Color.White)
+            drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(0f, h - th); lineTo(w, h - th); lineTo(w / 2, h); close() }, Color.White.copy(alpha = .75f))
+        }
+        Text("Max/Min", style = WType.small.copy(fontWeight = FontWeight.SemiBold), maxLines = 1)
+    }
 }
 
 @Composable

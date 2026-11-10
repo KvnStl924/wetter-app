@@ -16,6 +16,8 @@ object Places {
     class Index(val lat: FloatArray, val lon: FloatArray, val pop: IntArray, private val names: ByteArray, private val off: IntArray) {
         val size get() = lat.size
         fun name(i: Int) = String(names, off[i], off[i + 1] - off[i], Charsets.UTF_8)
+        /** Land je Ort (für den Max/Min-Schalter der Karte), null wenn die Länderliste fehlt. */
+        var countries: Countries.Index? = null
     }
 
     private val _index = MutableStateFlow<Index?>(null)
@@ -25,7 +27,10 @@ object Places {
     fun load(context: Context): Index {
         _index.value?.let { return it }
         val bytes = context.assets.open("places.bin").use { it.readBytes() }
-        return parse(bytes).also { _index.value = it }
+        return parse(bytes).also { idx ->
+            idx.countries = runCatching { Countries.parse(context.assets.open("places-cc.bin").use { it.readBytes() }, idx) }.getOrNull()
+            _index.value = idx
+        }
     }
 
     fun parse(bytes: ByteArray): Index {

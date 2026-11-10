@@ -148,13 +148,15 @@ class ScreenshotDump {
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)
     @Test fun temp() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp.png")
     @Test fun tempWorld() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_welt.png", area = doubleArrayOf(-30.0, 60.0, -40.0, 60.0))
+    @Test fun tempMinMax() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin.png", minMax = true)
+    @Test fun tempMinMaxEurope() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin_europa.png", area = doubleArrayOf(-12.0, 32.0, 35.0, 62.0), minMax = true)
     @Test fun clouds() = radarShot(de.schee.wetter.ui.radar.RadarLayer.CLOUDS, "wolken.png")
     @Test fun cloudsWorld() = radarShot(de.schee.wetter.ui.radar.RadarLayer.CLOUDS, "wolken_welt.png", area = doubleArrayOf(-100.0, 60.0, -60.0, 75.0))
     @Test fun lightning() = radarShot(null, "blitze.png", lightning = true, area = doubleArrayOf(0.0, 25.0, -12.0, 14.0))
     @Test fun rainLightning() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "regen_blitze.png", lightning = true)
     @Test fun radarPick() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_antippen.png", pick = true)
 
-    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer?, name: String, forecast: Boolean = false, lightning: Boolean = false, area: DoubleArray? = null, pick: Boolean = false) {
+    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer?, name: String, forecast: Boolean = false, lightning: Boolean = false, area: DoubleArray? = null, pick: Boolean = false, minMax: Boolean = false) {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
         fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
@@ -186,7 +188,7 @@ class ScreenshotDump {
         fun c(n: String, lat: Double, lon: Double, r: Int) = de.schee.wetter.ui.radar.MapCity(n, lat, lon, r)
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f),
             previewCities = if (area != null) emptyList() else listOf(c("Köln", 50.94, 6.96, 3), c("Düsseldorf", 51.23, 6.78, 3), c("Berlin", 52.52, 13.40, 1), c("Hamburg", 53.55, 9.99, 2), c("München", 48.14, 11.58, 2), c("Frankfurt am Main", 50.11, 8.68, 3), c("Leipzig", 51.34, 12.37, 4), c("Hannover", 52.38, 9.73, 4)),
-            previewLightning = lightning, previewArea = area,
+            previewLightning = lightning, previewArea = area, previewMinMax = minMax,
             previewPick = if (pick) de.schee.wetter.ui.radar.Picked(50.94, 6.96, "Köln", 4.2, 18.0, "Regen in 25 Min.") else null,
             previewMotion = if (pick) de.schee.wetter.data.Nowcast.Motion(60.0, 35.0, 50.2, 5.9, 50.5, 6.6) else null) } } }
         settle(); Thread.sleep(500); settle()

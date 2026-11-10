@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.0 – Max/Min je Land auf der Temperaturkarte
+- Neuer Schalter „Max/Min“ unten im Bedienfeld der Temperaturkarte: statt Werten an jeder Stadt steht an jedem Land der höchste und der tiefste Wert gerade (zur gewählten Stunde)
+- Landesnamen auf Deutsch, Beschriftung mittig im Land; Schalter bleibt gemerkt
+- Länderzuordnung der Orte aus GeoNames (assets/places-cc.bin, tools/places-country.mjs)
+
 ## 2.0.3 – Radar-Bedienfeld passgenau
 - Bedienfeld unten wieder kompakter (passgenau für Zeitleiste, Farbskala und eine Zusatzzeile) – Knöpfe bleiben weiterhin an derselben Stelle
 - Bei Regen mit Blitzen steht die Blitz-Legende im Feld; die Zugrichtung zeigt dann nur der Pfeil auf der Karte

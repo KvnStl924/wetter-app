@@ -47,8 +47,12 @@ private const val STYLE = "https://tiles.openfreemap.org/styles/dark"
 /** Weltbild um [side] · 360° verschoben (östlich +1, westlich −1). */
 private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360, -Satellite.MAX_LAT, Satellite.MAX_LAT)
 
-/** Wert/Name an einem Ort. kind: 0 = Hotspot, 1 = Stadt der Karte, 2 = eigener Ort, 3 = Großstadt aus der Weltliste. */
-data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null)
+/**
+ * Wert/Name an einem Ort. kind: 0 = Hotspot, 1 = Stadt der Karte, 2 = eigener Ort, 3 = Großstadt aus der Weltliste,
+ * 4 = Land mit Höchst- ([value]) und Tiefstwert ([value2]).
+ */
+data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null,
+                    val value2: String? = null, val color2: Int? = null)
 
 /** Farbe für Zahl und Rand der Pille: Wertfarbe, aufgehellt (gut lesbar auf dunklem Grund). */
 internal fun pillColor(c: Int, white: Double = 0.45): Int {
@@ -59,12 +63,63 @@ internal fun pillColor(c: Int, white: Double = 0.45): Int {
 /** Name des fertigen Wert-Bilds (Pille mit Zahl) für Text und Farbe. */
 private fun pillName(c: Int, text: String) = "v_%06x_%s".format(pillColor(c) and 0xFFFFFF, text)
 
+/** Bild-Name eines Beschriftungs-Werts (einfache Pille bzw. Max/Min-Pille eines Landes). */
+private fun pillName(l: MapLabel): String? {
+    val v = l.value ?: return null; val c = l.color ?: return null
+    val v2 = l.value2; val c2 = l.color2
+    return if (v2 != null && c2 != null) "r_%06x_%s_%06x_%s".format(pillColor(c) and 0xFFFFFF, v, pillColor(c2) and 0xFFFFFF, v2) else pillName(c, v)
+}
+
+/** Bild zu [pillName]: einfache Pille bzw. Max/Min-Pille. */
+internal fun labelBitmap(l: MapLabel, density: Float): Bitmap? {
+    val v = l.value ?: return null; val c = l.color ?: return null
+    val v2 = l.value2; val c2 = l.color2
+    return if (v2 != null && c2 != null) rangeBitmap(v, c, v2, c2, density) else pillBitmap(v, c, density)
+}
+
+/**
+ * Max/Min-Pille eines Landes: „▲ 24° │ ▼ 12°“ – Dreiecke und Zahlen je in ihrer Temperaturfarbe,
+ * gleiche Höhe und Schrift wie die einfachen Pillen, Rand dezent weiß.
+ */
+internal fun rangeBitmap(max: String, cMax: Int, min: String, cMin: Int, density: Float): Bitmap {
+    val font = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    val tMax = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = pillColor(cMax, 0.6); textSize = 11.5f * density; typeface = font }
+    val tMin = android.graphics.Paint(tMax).apply { color = pillColor(cMin, 0.6) }
+    val h = 17f * density; val padX = 7f * density; val stroke = 1.1f * density
+    val tri = 6.4f * density; val gap = 3.2f * density; val sep = 6.5f * density
+    val wMax = tMax.measureText(max); val wMin = tMin.measureText(min)
+    val w = padX + tri + gap + wMax + sep + 1f * density + sep + tri + gap + wMin + padX
+    val bmp = Bitmap.createBitmap(Math.ceil(w.toDouble()).toInt(), Math.ceil(h.toDouble()).toInt(), Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val rect = android.graphics.RectF(stroke / 2, stroke / 2, w - stroke / 2, h - stroke / 2)
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6121821.toInt() })
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x59FFFFFF; style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke
+    })
+    val fm = tMax.fontMetrics
+    val base = h / 2 - (fm.ascent + fm.descent) / 2
+    val cy = h / 2; val th = tri * .78f
+    fun triangle(x: Float, up: Boolean, p: android.graphics.Paint) {
+        val path = android.graphics.Path()
+        if (up) { path.moveTo(x, cy + th / 2); path.lineTo(x + tri, cy + th / 2); path.lineTo(x + tri / 2, cy - th / 2) }
+        else { path.moveTo(x, cy - th / 2); path.lineTo(x + tri, cy - th / 2); path.lineTo(x + tri / 2, cy + th / 2) }
+        path.close(); cv.drawPath(path, p)
+    }
+    var x = padX
+    triangle(x, true, tMax); x += tri + gap
+    cv.drawText(max, x, base, tMax); x += wMax + sep
+    cv.drawRect(x, h * .26f, x + 1f * density, h * .74f, android.graphics.Paint().apply { color = 0x40FFFFFF }); x += 1f * density + sep
+    triangle(x, false, tMin); x += tri + gap
+    cv.drawText(min, x, base, tMin)
+    return bmp
+}
+
 private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
     Feature.fromGeometry(Point.fromLngLat(l.lon, l.lat)).apply {
         addNumberProperty("kind", l.kind)
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
-        if (l.color != null && l.value != null) addStringProperty("pill", pillName(l.color, l.value))
+        pillName(l)?.let { addStringProperty("pill", it) }
     }
 })
 
@@ -92,9 +147,9 @@ internal fun pillBitmap(text: String, c: Int, density: Float): Bitmap {
     return bmp
 }
 
-private fun ensurePill(s: Style, text: String, c: Int, density: Float) {
-    val name = pillName(c, text)
-    if (s.getImage(name) == null) s.addImage(name, pillBitmap(text, c, density))
+private fun ensurePill(s: Style, l: MapLabel, density: Float) {
+    val name = pillName(l) ?: return
+    if (s.getImage(name) == null) labelBitmap(l, density)?.let { s.addImage(name, it) }
 }
 
 /**
@@ -147,7 +202,7 @@ private fun addOverlayLayers(s: Style) {
         PropertyFactory.circleRadius(2.6f),
         PropertyFactory.circleColor("#F2F3F5"),
         PropertyFactory.circleStrokeWidth(1f), PropertyFactory.circleStrokeColor("rgba(0,0,0,0.6)"),
-    ).withFilter(Expression.all(Expression.neq(kind, Expression.literal(2)), Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3))))))
+    ).withFilter(Expression.all(Expression.neq(kind, Expression.literal(2)), Expression.neq(kind, Expression.literal(4)), Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
         PropertyFactory.textField(Expression.get("name")),
         PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
@@ -494,7 +549,7 @@ fun RadarMap(
     val density = context.resources.displayMetrics.density
     LaunchedEffect(style, labels) {
         val s = style ?: return@LaunchedEffect
-        labels.forEach { l -> if (l.color != null && l.value != null) ensurePill(s, l.value, l.color, density) }
+        labels.forEach { l -> ensurePill(s, l, density) }
         (s.getSource("labels") as? GeoJsonSource)?.setGeoJson(labelFeatures(labels))
         // Ortsnamen zeichnet nur die App selbst (immer mit Wert) – die der Karte bleiben aus (Kevin am 09.11.2026)
         listOf("place_city_large", "place_city", "place_town", "place_village").forEach {
