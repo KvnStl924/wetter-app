@@ -1,6 +1,19 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 2.0.0 – Bestes Zeitfenster, Gewitter-Abstand, rundum überarbeitet
+- Neue Kachel „Bestes Zeitfenster“: für Spazieren, Fahrrad, Wäsche oder Grillen das beste trockene Fenster heute und morgen („Jetzt bis 16 Uhr · danach Regen“), mit 24-Stunden-Leiste
+- Gewitter-Abstand: unter der Temperatur „Gewitter 12 km im Südwesten · kommt näher“ (Satelliten-Blitze in voller Auflösung, ca. 1 km genau); Antippen öffnet das Radar mit Blitzen; kommt es näher, grollt das Handy kurz wie Donner
+- Radar Wind: die Linien sind jetzt echte Spuren, die sich mit dem Wind biegen – auch in Wirbeln und Tiefs –, mit blasser werdendem Schweif
+- Radar Regen: doppelt so fein gezeichnet, glatte klare Ränder statt verwaschener Kästchen
+- Radar Wolken: beim Hineinzoomen scharfes Satellitenbild des Ausschnitts (ca. 1–2 km statt 20 km), weich überblendet
+- Wischen zwischen Orten: Nachbarorte sind vorgeladen (kein Aufploppen mehr), weiches Einrasten mit leichtem Tiefen-Effekt
+- iOS-Übergänge: Einstellungen und Ortsliste schieben sich von rechts herein, die Karte gleitet von unten hoch
+- Antippen wie bei iOS: Knöpfe, Kacheln, Tage und Orte geben beim Drücken leicht nach und federn zurück, dazu ein feiner Klick
+- Einstellungen mit iOS-Segmentschaltern, Ortssuche als iOS-Suchfeld, Ortskarten mit dem Himmel ihres Wetters
+- Hintergrund: Regen klar und in drei Tiefen, Schnee pendelt sanft, Wetterleuchten bei Gewitter; gleich schnell auf 60- und 120-Hz-Displays; Wolken feiner berechnet
+- Wetterlage und 10-Tage-Liste blenden beim Umschalten weich über; alle Tageszeilen gleich hoch; Regenkurve reicht bis „2 Std.“
+
 ## 1.0.0 – Regen auf die Minute, Warnkarte, echter Himmel
 - Regen auf die Minute aus dem DWD-Radar: unter der Temperatur „Regen in 15 Min.“ bzw. „Regen hört in 10 Min. auf“; Kachel „Regen nächste 2 Std.“ als weiche Kurve in 5-Minuten-Schritten
 - Unter der Temperatur: wie es sich anfühlt („Fühlt sich frisch an“, „schwül“, „beißender Wind“ …) und der Vergleich mit gestern („3° kälter als gestern“)

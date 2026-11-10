@@ -7,7 +7,7 @@ plugins {
 }
 
 // ---- Version: X.Y.Z (X = großes Update, Y = kleines Update, Z = Fehlerbehebung) ----
-val versionMajor = 1
+val versionMajor = 2
 val versionMinor = 0
 val versionPatch = 0
 
