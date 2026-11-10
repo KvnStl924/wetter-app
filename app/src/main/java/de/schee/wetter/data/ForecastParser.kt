@@ -14,7 +14,7 @@ import kotlin.math.abs
 object ForecastParser {
     const val ICON_DAYS = 2
 
-    fun parse(iconJson: String, ecmwfJson: String, fetchedAt: Long): Forecast {
+    fun parse(iconJson: String, ecmwfJson: String, fetchedAt: Long, multiJson: String? = null): Forecast {
         val icon = JSONObject(iconJson)
         val ec = JSONObject(ecmwfJson)
         val c = icon.getJSONObject("current")
@@ -33,18 +33,23 @@ object ForecastParser {
             precip = c.optDouble("precipitation", 0.0),
         )
 
-        val iconHours = hours(icon.getJSONObject("hourly"))
+        val today = current.time.toLocalDate()
+        val allIconHours = hours(icon.getJSONObject("hourly"))
+        val yesterday = allIconHours.filter { it.time.toLocalDate().isBefore(today) }
+        val iconHours = allIconHours.filter { !it.time.toLocalDate().isBefore(today) }
         val ecHours = hours(ec.getJSONObject("hourly"))
         val lastIcon = iconHours.lastOrNull()?.time
         val mergedHours = iconHours + ecHours.filter { lastIcon == null || it.time.isAfter(lastIcon) }
 
-        val iconDays = days(icon.getJSONObject("daily"), "ICON")
+        val iconDays = days(icon.getJSONObject("daily"), "ICON").filter { !it.date.isBefore(today) }
         val ecDays = days(ec.getJSONObject("daily"), "ECMWF")
         val ecByDate = ecDays.associateBy { it.date }
         val iconByDate = iconDays.associateBy { it.date }
+        val confidence = multiJson?.let { runCatching { confidence(JSONObject(it)) }.getOrNull() }.orEmpty()
+        fun unsure(d: Day, a: Day?, b: Day?) = confidence[d.date]?.let { it.level == 1 } ?: disagree(a, b)
         val merged = mutableListOf<Day>()
-        for ((i, d) in iconDays.withIndex()) if (i < ICON_DAYS) merged += d.copy(uncertain = disagree(d, ecByDate[d.date]))
-        for (d in ecDays) if (merged.none { it.date == d.date }) merged += d.copy(uncertain = disagree(iconByDate[d.date], d))
+        for ((i, d) in iconDays.withIndex()) if (i < ICON_DAYS) merged += d.copy(uncertain = unsure(d, d, ecByDate[d.date]))
+        for (d in ecDays) if (!d.date.isBefore(today) && merged.none { it.date == d.date }) merged += d.copy(uncertain = unsure(d, iconByDate[d.date], d))
 
         val minutely = icon.optJSONObject("minutely_15")?.let { m ->
             val t = m.getJSONArray("time"); val p = m.getJSONArray("precipitation")
@@ -56,7 +61,39 @@ object ForecastParser {
             timezone = icon.optString("timezone", "Europe/Berlin"),
             fetchedAt = fetchedAt, current = current,
             hours = mergedHours, days = merged.sortedBy { it.date }.take(10), minutely = minutely,
+            yesterday = yesterday, confidence = confidence,
         )
+    }
+
+    /** Modelle für den Vergleich (eine Abfrage, nur Tageswerte). */
+    val MULTI_MODELS = listOf("icon_seamless", "ecmwf_ifs025", "gfs_seamless", "ukmo_seamless", "meteofrance_seamless", "gem_seamless")
+
+    /** Sicherheit je Tag: Wie weit liegen die Höchstwerte auseinander, sind sich die Modelle beim Regen einig? */
+    fun confidence(o: JSONObject): Map<LocalDate, Confidence> {
+        val d = o.getJSONObject("daily"); val t = d.getJSONArray("time")
+        val out = LinkedHashMap<LocalDate, Confidence>()
+        for (i in 0 until t.length()) {
+            val tm = ArrayList<Double>(); val pr = ArrayList<Double>()
+            for (m in MULTI_MODELS) {
+                val a = d.arr("temperature_2m_max_$m").d(i); val p = d.arr("precipitation_sum_$m").d(i)
+                if (a != null && p != null) { tm += a; pr += p }
+            }
+            if (tm.size < 3) continue
+            out[LocalDate.parse(t.getString(i))] = rate(tm, pr)
+        }
+        return out
+    }
+
+    fun rate(tMax: List<Double>, precip: List<Double>): Confidence {
+        val n = tMax.size
+        val spread = tMax.max() - tMax.min()
+        val wet = precip.count { it >= 1.0 }; val dry = precip.count { it < 0.2 }
+        val level = when {
+            spread >= 6.0 || minOf(wet, dry) * 3 >= n -> 1
+            spread <= 3.0 && maxOf(wet, dry) * 5 >= n * 4 -> 3
+            else -> 2
+        }
+        return Confidence(level, n, wet, tMax.min(), tMax.max())
     }
 
     /** Deutlich unterschiedliche Höchst-/Tiefstwerte oder Regen nur in einem Modell. */

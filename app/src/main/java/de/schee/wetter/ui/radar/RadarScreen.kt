@@ -1,6 +1,8 @@
 package de.schee.wetter.ui.radar
 
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -128,10 +130,20 @@ fun RadarScreen(
     previewLightning: Boolean = false,
     /** Testbild: anderer Ausschnitt (West, Ost, Süd, Nord) statt Deutschland. */
     previewArea: DoubleArray? = null,
+    /** Warngebiete gleich eingeschaltet (z. B. aus der Warn-Kachel geöffnet). */
+    initialWarnings: Boolean = false,
+    previewPick: Picked? = null,
+    previewMotion: de.schee.wetter.data.Nowcast.Motion? = null,
 ) {
     val ui by vm.ui.collectAsState()
     var layer by remember { mutableStateOf(initialLayer) }
     var lightning by remember { mutableStateOf(previewLightning) }
+    var warnings by remember { mutableStateOf(initialWarnings) }
+    var moving by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(previewPick) }
+    val haptic = de.schee.wetter.ui.rememberHaptics()
+    val weatherVm = if (preview == null) viewModel<de.schee.wetter.ui.WeatherViewModel>() else null
+    var toast by remember { mutableStateOf<String?>(null) }
     var index by remember { mutableIntStateOf(if (ui.frames.isNotEmpty()) ui.nowIndex else -1) }
     var hour by remember { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
@@ -144,16 +156,18 @@ fun RadarScreen(
     var centerTick by remember { mutableIntStateOf(0) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val units = remember { de.schee.wetter.data.Units.from(context) }
-    val title = listOfNotNull(layer?.label, "Blitze".takeIf { lightning }).joinToString(" · ").ifEmpty { "Karte" }
+    val title = listOfNotNull(layer?.label, "Blitze".takeIf { lightning }, "Warnungen".takeIf { warnings }).joinToString(" · ").ifEmpty { "Karte" }
 
     // Schalter: eine Ebene; Blitze nur allein oder mit Regen (Kevin am 09.11.2026)
     fun pick(l: RadarLayer) {
+        haptic(de.schee.wetter.ui.Haptics.Kind.SNAP)
         layer = if (layer == l) null else l
         if (layer != RadarLayer.RAIN && layer != null) lightning = false
         playing = false
         AppLog.tap("Vollbild-Radar → ${l.label} ${if (layer == l) "an" else "aus"}")
     }
     fun toggleLightning() {
+        haptic(de.schee.wetter.ui.Haptics.Kind.SNAP)
         lightning = !lightning
         if (lightning && layer != RadarLayer.RAIN) layer = null
         AppLog.tap("Vollbild-Radar → Blitze ${if (lightning) "an" else "aus"}")
@@ -178,6 +192,33 @@ fun RadarScreen(
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while (isActive) { vm.loadLightning(); delay(60_000) } }
     }
     LaunchedEffect(ui.frames.size) { if (index < 0 && ui.frames.isNotEmpty()) index = ui.nowIndex }
+
+    // Zugrichtung des Regens (aus zwei Messungen 30 Minuten auseinander) um den Ort bzw. Standort
+    val motionAt = fix?.let { it.lat to it.lon } ?: place?.let { it.lat to it.lon }
+    val nowBytes = ui.bytes[ui.nowIndex]
+    val oldBytes = ui.frames.indexOfFirst { it.minutes == -30 }.let { ui.bytes[it] }
+    val motion by androidx.compose.runtime.produceState(previewMotion, nowBytes, oldBytes, motionAt?.first?.let { Math.round(it * 10) }, motionAt?.second?.let { Math.round(it * 10) }) {
+        if (preview != null || motionAt == null || nowBytes == null || oldBytes == null) return@produceState
+        value = withContext(Dispatchers.Default) { runCatching { de.schee.wetter.data.Nowcast.motion(ui.frames, ui.bytes, motionAt.first, motionAt.second) }.getOrNull() }
+    }
+
+    // Angetippter Punkt: Name, Temperatur, Wind und – in Deutschland – Regen in den nächsten 2 Stunden
+    fun tapped(lat: Double, lon: Double, long: Boolean) {
+        val ww0 = ui.worldNow
+        val idx = de.schee.wetter.data.Places.index.value
+        val name = idx?.let { ix ->
+            de.schee.wetter.data.Places.inView(ix, lat - .12, lat + .12, lon - .18, lon + .18, limit = 400)
+                .minByOrNull { i -> kotlin.math.hypot(ix.lat[i] - lat, (ix.lon[i] - lon) * kotlin.math.cos(Math.toRadians(lat))) - kotlin.math.ln(ix.pop[i].toDouble().coerceAtLeast(1.0)) * .004 }
+                ?.let { ix.name(it) }
+        }
+        val temp = ww0?.tempAt(lat, lon)?.takeUnless { it.isNaN() }
+        val wind = ww0?.let { w -> DoubleArray(2).also { w.windAt(lat, lon, it) } }
+        val rain = runCatching { de.schee.wetter.data.Nowcast.series(ui.frames, ui.bytes, lat, lon, Instant.now()) }.getOrNull()
+        val p = Picked(lat, lon, name, temp, wind?.let { kotlin.math.hypot(it[0], it[1]) }, rain?.let { de.schee.wetter.data.Nowcast.headline(it, Instant.now()) ?: "Kein Regen in den nächsten 2 Std." })
+        picked = p
+        AppLog.tap("Vollbild-Radar → ${if (long) "lange gedrückt" else "angetippt"}: ${name ?: "%.2f, %.2f".format(lat, lon)}")
+        if (long) savePlace(p, weatherVm, haptic) { toast = it } else haptic(de.schee.wetter.ui.Haptics.Kind.SNAP)
+    }
 
     // Regenbild zum gewählten Zeitpunkt dekodieren und umfärben (im Hintergrund-Thread, ca. 30 ms).
     val showRain = layer == RadarLayer.RAIN
@@ -256,13 +297,23 @@ fun RadarScreen(
                 precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, fieldLandOnly = fieldKind == RadarLayer.TEMP,
                 center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
                 onCities = { c, t -> cities = c; idle = t },
-                labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest) { transform = it }
+                labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest,
+                fix = fix, motion = if (showRain && (frame?.minutes ?: 0) <= 120) motion else null, warnings = warnings,
+                pick = picked?.let { it.lat to it.lon },
+                onTap = { la, lo, long -> tapped(la, lo, long) },
+                onMoving = { moving = it; if (it && picked != null) picked = null }) { transform = it }
         }
         val t = transform
-        if (layer == RadarLayer.WIND && t != null && ww?.wind != null) WindParticles(ww, t)
+        // Windteilchen blenden beim Verschieben kurz aus und erscheinen danach an der richtigen Stelle
+        // (sie werden über der Karte gezeichnet und hingen beim Wischen sonst sichtbar hinterher).
+        val windAlpha by androidx.compose.animation.core.animateFloatAsState(if (moving) 0f else 1f,
+            androidx.compose.animation.core.tween(if (moving) 90 else 380), label = "windAlpha")
+        if (layer == RadarLayer.WIND && t != null && ww?.wind != null && windAlpha > 0.01f)
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = windAlpha }) { WindParticles(ww, t) }
         if (preview != null && lightning && t != null) LightningDots(ui.strikes, ui.strikesNewest, t)
         val f = fix
-        if (f != null && t != null) MyLocationDot(f, t)
+        if (preview != null && f != null && t != null) MyLocationDot(f, t)
+        if (preview != null && t != null) motion?.let { MotionArrowPreview(it, t) }
         if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null))
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
@@ -281,7 +332,24 @@ fun RadarScreen(
                 ToggleButton(layer == RadarLayer.WIND, { pick(RadarLayer.WIND) }) { WindGlyph() }
                 ToggleButton(layer == RadarLayer.TEMP, { pick(RadarLayer.TEMP) }) { TempGlyph() }
                 ToggleButton(layer == RadarLayer.CLOUDS, { pick(RadarLayer.CLOUDS) }) { CloudGlyph() }
+                ToggleButton(warnings, {
+                    haptic(de.schee.wetter.ui.Haptics.Kind.SNAP); warnings = !warnings
+                    AppLog.tap("Vollbild-Radar → Warnungen ${if (warnings) "an" else "aus"}")
+                }) { WarnGlyph() }
             }
+            // Angetippter Punkt: Karte im iOS-Stil über dem Bedienfeld
+            androidx.compose.animation.AnimatedVisibility(picked != null,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 3 },
+                exit = androidx.compose.animation.fadeOut()) {
+                val p = picked
+                if (p != null) PickCard(p, units, onSave = { savePlace(p, weatherVm, haptic) { toast = it } },
+                    onClose = { AppLog.tap("Vollbild-Radar → Punkt-Karte geschlossen"); picked = null })
+            }
+            androidx.compose.animation.AnimatedVisibility(toast != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(toast ?: "", style = WType.small, modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 14.dp, vertical = 9.dp))
+            }
+            LaunchedEffect(toast) { if (toast != null) { delay(2200); toast = null } }
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xE6141927)).padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -297,8 +365,80 @@ fun RadarScreen(
                     null -> if (!lightning) Text("Wähle rechts eine Ebene.", style = WType.bodyDim)
                 }
                 if (lightning) LightningInfo(ui, withRain = layer == RadarLayer.RAIN)
+                if (showRain) motion?.let { MotionLine(it) }
+                if (warnings) Text("Amtliche Warnungen des DWD (nur Deutschland) · gelb bis violett = Wetterwarnung bis extremes Unwetter",
+                    style = WType.label.copy(color = WColors.Label))
             }
         }
+    }
+}
+
+// ------------------------------------------------------------------ Antippen
+
+/** Ein angetippter Punkt auf der Karte. */
+data class Picked(val lat: Double, val lon: Double, val name: String?, val temp: Double?, val windKmh: Double?, val rain: String?)
+
+private fun savePlace(p: Picked, vm: de.schee.wetter.ui.WeatherViewModel?, haptic: (de.schee.wetter.ui.Haptics.Kind) -> Unit, toast: (String) -> Unit) {
+    val name = p.name ?: "%.2f°, %.2f°".format(java.util.Locale.GERMANY, p.lat, p.lon)
+    vm?.addPlace(de.schee.wetter.data.Place(name, p.lat, p.lon, false))
+    haptic(de.schee.wetter.ui.Haptics.Kind.SUCCESS)
+    AppLog.tap("Vollbild-Radar → Ort „$name“ gespeichert")
+    toast("„$name“ zu deinen Orten hinzugefügt")
+}
+
+@Composable
+private fun PickCard(p: Picked, units: de.schee.wetter.data.Units, onSave: () -> Unit, onClose: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xF0141927)).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(p.name ?: "Ausgewählter Punkt", style = WType.condition, modifier = Modifier.weight(1f), maxLines = 1)
+            Box(Modifier.size(28.dp).clip(CircleShape).background(Color.White.copy(alpha = .12f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(10.dp)) {
+                    val st = 1.8.dp.toPx()
+                    drawLine(Color.White, Offset.Zero, Offset(size.width, size.height), st, androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(Color.White, Offset(size.width, 0f), Offset(0f, size.height), st, androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+            }
+        }
+        val parts = listOfNotNull(p.temp?.let { units.t(it) }, p.windKmh?.let { "Wind ${units.w(it)}" })
+        if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = WType.body)
+        p.rain?.let { Text(it, style = WType.bodyDim.copy(color = if (it.startsWith("Kein")) WColors.TextDim else WColors.Rain)) }
+        Text("+ Zu meinen Orten", style = WType.small.copy(color = WColors.Accent),
+            modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onSave).padding(vertical = 4.dp))
+    }
+}
+
+/** „Regen zieht nach Nordosten · 35 km/h“ mit kleinem Pfeil. */
+@Composable
+private fun MotionLine(m: de.schee.wetter.data.Nowcast.Motion) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Canvas(Modifier.size(14.dp).graphicsLayer { rotationZ = m.towardDeg.toFloat() }) {
+            val w = size.width; val h = size.height; val st = 1.8.dp.toPx()
+            drawLine(Color.White, Offset(w / 2, h * .92f), Offset(w / 2, h * .1f), st, androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Color.White, Offset(w * .2f, h * .38f), Offset(w / 2, h * .08f), st, androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Color.White, Offset(w * .8f, h * .38f), Offset(w / 2, h * .08f), st, androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+        Text("Regen zieht nach ${m.towardName} · etwa ${(m.kmh / 5).roundToInt() * 5} km/h", style = WType.label)
+    }
+}
+
+/** Testbild: Pfeil über der Vorschau-Karte (in der App zeichnet ihn die Karte selbst). */
+@Composable
+private fun MotionArrowPreview(m: de.schee.wetter.data.Nowcast.Motion, t: MapTransform) {
+    Canvas(Modifier.fillMaxSize()) {
+        val a = Offset(t.x(m.fromLon), t.y(m.fromLat)); val b = Offset(t.x(m.toLon), t.y(m.toLat))
+        val d = b - a; val len = d.getDistance(); if (len < 1f) return@Canvas
+        val u = d / len; val n = Offset(-u.y, u.x); val head = len * .28f
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(a.x, a.y); lineTo(b.x, b.y)
+            val c = b - u * head
+            moveTo((c + n * head * .62f).x, (c + n * head * .62f).y); lineTo(b.x, b.y); lineTo((c - n * head * .62f).x, (c - n * head * .62f).y)
+        }
+        val cap = androidx.compose.ui.graphics.StrokeCap.Round; val join = androidx.compose.ui.graphics.StrokeJoin.Round
+        drawPath(path, Color.Black.copy(alpha = .55f), style = Stroke(6.5.dp.toPx(), cap = cap, join = join))
+        drawPath(path, Color.White.copy(alpha = .92f), style = Stroke(3.dp.toPx(), cap = cap, join = join))
     }
 }
 
@@ -771,7 +911,8 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, onPlay: () -
         }
     }
     TimelineSlider(index.coerceAtLeast(0), ui.frames.size, ui.nowIndex, onIndex, onDone,
-        modelFrom = ui.frames.indexOfFirst { it.kind == RadarData.Kind.MODEL })
+        modelFrom = ui.frames.indexOfFirst { it.kind == RadarData.Kind.MODEL },
+        major = { i -> i == ui.nowIndex || ui.frames.getOrNull(i)?.let { f -> f.kind == RadarData.Kind.MODEL || f.time.epochSecond % 3600 == 0L } == true })
     Legend(RadarData.LEGEND.map { it.first to Color(RadarData.colorFor(it.second)) })
 }
 
@@ -822,7 +963,7 @@ private fun LightningInfo(ui: RadarUi, withRain: Boolean) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimelineSlider(index: Int, count: Int, nowIndex: Int, onIndex: (Int) -> Unit, onDone: () -> Unit, modelFrom: Int) {
+private fun TimelineSlider(index: Int, count: Int, nowIndex: Int, onIndex: (Int) -> Unit, onDone: () -> Unit, modelFrom: Int, major: (Int) -> Boolean = { true }) {
     if (count < 2) return
     Box {
         Canvas(Modifier.fillMaxWidth().height(40.dp)) {
@@ -831,9 +972,15 @@ private fun TimelineSlider(index: Int, count: Int, nowIndex: Int, onIndex: (Int)
             drawLine(Color.White.copy(alpha = .7f), Offset(x(nowIndex), size.height / 2 - 10.dp.toPx()), Offset(x(nowIndex), size.height / 2 + 10.dp.toPx()), 2.dp.toPx())
             if (modelFrom > 0) drawLine(WColors.Accent.copy(alpha = .6f), Offset(x(modelFrom), size.height / 2 - 7.dp.toPx()), Offset(x(modelFrom), size.height / 2 + 7.dp.toPx()), 2.dp.toPx())
         }
+        val haptic = de.schee.wetter.ui.rememberHaptics()
+        val current by androidx.compose.runtime.rememberUpdatedState(index)
         Slider(
             value = index.toFloat(),
-            onValueChange = { onIndex(it.toInt().coerceIn(0, count - 1)) },
+            onValueChange = {
+                val i = it.toInt().coerceIn(0, count - 1)
+                if (i != current) haptic(if (major(i)) de.schee.wetter.ui.Haptics.Kind.HOUR else de.schee.wetter.ui.Haptics.Kind.TICK)
+                onIndex(i)
+            },
             onValueChangeFinished = onDone,
             valueRange = 0f..(count - 1).toFloat(),
             modifier = Modifier.fillMaxWidth().height(40.dp),
@@ -930,6 +1077,15 @@ private fun ToggleButton(on: Boolean, onClick: () -> Unit, content: @Composable 
 }
 
 /** Blitz. */
+/** Warndreieck. */
+@Composable private fun WarnGlyph() = Canvas(Modifier.size(22.dp)) {
+    val s = size.width; val st = 1.8.dp.toPx()
+    val p = androidx.compose.ui.graphics.Path().apply { moveTo(s * .5f, s * .1f); lineTo(s * .94f, s * .88f); lineTo(s * .06f, s * .88f); close() }
+    drawPath(p, Color.White, style = Stroke(st, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    drawLine(Color.White, Offset(s * .5f, s * .38f), Offset(s * .5f, s * .62f), st, androidx.compose.ui.graphics.StrokeCap.Round)
+    drawCircle(Color.White, st * .7f, Offset(s * .5f, s * .75f))
+}
+
 @Composable private fun BoltGlyph() = Canvas(Modifier.size(22.dp)) {
     val s = size.width
     val p = androidx.compose.ui.graphics.Path().apply {

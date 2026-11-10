@@ -42,6 +42,36 @@ enum class SkyWeather(val label: String) {
 
 enum class SkyTime(val label: String) { DAWN("Sonnenaufgang"), DAY("Tag"), DUSK("Sonnenuntergang"), NIGHT("Nacht") }
 
+/**
+ * Echter Himmel am Ort (Kevin am 10.11.2026): Sonne und Mond stehen dort, wo sie wirklich stehen,
+ * der Mond in seiner echten Phase. Gewichte 0…1 für Tag, Dämmerung und Nacht aus der Sonnenhöhe.
+ */
+data class SkyLight(
+    val sunAlt: Double, val sunAz: Double,
+    val moonAlt: Double, val moonAz: Double,
+    /** beleuchteter Anteil 0…1 und ob zunehmend */
+    val moonLit: Double, val waxing: Boolean,
+) {
+    private fun smooth(a: Double, b: Double, x: Double): Float { val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0); return (t * t * (3 - 2 * t)).toFloat() }
+    val day: Float get() = smooth(-1.0, 9.0, sunAlt)
+    val night: Float get() = 1f - smooth(-13.0, -5.0, sunAlt)
+    /** Dämmerung: am stärksten kurz vor/nach Auf- und Untergang. */
+    val twilight: Float get() = (smooth(-12.0, -2.0, sunAlt) * (1f - smooth(1.0, 10.0, sunAlt))).coerceIn(0f, 1f)
+    val morning: Boolean get() = sunAz < 180
+
+    companion object {
+        fun at(epochMs: Long, lat: Double, lon: Double): SkyLight {
+            val s = de.schee.wetter.data.Astro.sun(epochMs, lat, lon)
+            val m = de.schee.wetter.data.Astro.moonPos(epochMs, lat, lon)
+            val ph = de.schee.wetter.data.Astro.moon(epochMs)
+            return SkyLight(s.altDeg, s.azDeg, m.altDeg, m.azDeg, ph.illumination, ph.waxing)
+        }
+
+        /** Richtung → waagrechte Lage im Bild: Osten links, Süden Mitte, Westen rechts (Blick nach Süden). */
+        fun xOf(az: Double): Float = (((az - 90.0) / 180.0).coerceIn(-.05, 1.05)).toFloat()
+    }
+}
+
 /** Farben und Stärken wie in der abgenommenen Vorschau. */
 object SkyPalette {
     private val base = mapOf(
@@ -63,6 +93,14 @@ object SkyPalette {
         SkyWeather.CLEAR to 0f, SkyWeather.PARTLY to .42f, SkyWeather.OVERCAST to 1f, SkyWeather.RAIN to .92f,
         SkyWeather.STORM to 1f, SkyWeather.SNOW to .85f, SkyWeather.FOG to 0f,
     )
+
+    /** Stufenloser Verlauf nach echtem Sonnenstand: Tag, Dämmerung (morgens/abends) und Nacht ineinander geblendet. */
+    fun gradient(w: SkyWeather, light: SkyLight): Pair<Color, Color> {
+        val day = gradient(w, SkyTime.DAY); val night = gradient(w, SkyTime.NIGHT)
+        val twi = gradient(w, if (light.morning) SkyTime.DAWN else SkyTime.DUSK)
+        fun mix(a: Color, b: Color, c: Color) = lerp(lerp(c, a, light.day / (light.day + light.night + 1e-3f).coerceAtLeast(1e-3f)), b, light.twilight)
+        return mix(day.first, twi.first, night.first) to mix(day.second, twi.second, night.second)
+    }
 
     fun gradient(w: SkyWeather, t: SkyTime): Pair<Color, Color> {
         val (top, bottom) = base.getValue(t)
@@ -95,9 +133,10 @@ private class Particle(var x: Float, var y: Float, val a: Float, val b: Float, v
  * Animiert nur, solange die App sichtbar ist (repeatOnLifecycle STARTED) – kein Akku im Hintergrund.
  */
 @Composable
-fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modifier) {
+fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modifier, light: SkyLight? = null) {
     val w by rememberUpdatedState(weather)
     val tm by rememberUpdatedState(time)
+    val lt by rememberUpdatedState(light)
     var seconds by remember { mutableFloatStateOf(0f) }
     var volume by remember { mutableStateOf<ImageBitmap?>(null) }
     var size by remember { mutableStateOf(Size.Zero) }
@@ -156,26 +195,58 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
         size = this.size
         val wd = this.size.width; val ht = this.size.height
         val t = seconds
-        val (top, bottom) = SkyPalette.gradient(w, tm)
+        val l = lt
+        val (top, bottom) = if (l != null) SkyPalette.gradient(w, l) else SkyPalette.gradient(w, tm)
         drawRect(Brush.verticalGradient(listOf(top, bottom)))
+        val clearish = w == SkyWeather.CLEAR || w == SkyWeather.PARTLY
 
-        // Horizont-Glühen bei Auf-/Untergang
-        if (tm == SkyTime.DAWN || tm == SkyTime.DUSK) {
-            val k = when (w) { SkyWeather.CLEAR -> .55f; SkyWeather.PARTLY -> .4f; else -> .18f }
-            drawRect(Brush.radialGradient(
-                0f to Color(255, 138, 76).copy(alpha = k), .45f to Color(170, 70, 120).copy(alpha = k * .45f), 1f to Color.Transparent,
-                center = Offset(wd * .5f, ht * 1.05f), radius = ht * .7f))
+        if (l != null) {
+            // Horizont-Glühen dort, wo die Sonne wirklich auf- bzw. untergeht
+            if (l.twilight > .02f) {
+                val k = when (w) { SkyWeather.CLEAR -> .55f; SkyWeather.PARTLY -> .4f; else -> .18f } * l.twilight
+                drawRect(Brush.radialGradient(
+                    0f to Color(255, 138, 76).copy(alpha = k), .45f to Color(170, 70, 120).copy(alpha = k * .45f), 1f to Color.Transparent,
+                    center = Offset(wd * SkyLight.xOf(l.sunAz), ht * 1.05f), radius = ht * .72f))
+            }
+            // Sonnenschein: Lichtfleck an der echten Sonnenposition, je höher die Sonne, desto weiter oben
+            if (l.day > .02f && clearish) {
+                val k = (if (w == SkyWeather.CLEAR) .38f else .22f) * l.day
+                val y = (ht * (.34f - (l.sunAlt / 60.0).toFloat().coerceIn(0f, 1f) * .44f)).coerceAtLeast(-ht * .1f)
+                val warm = (1f - (l.sunAlt / 25.0).toFloat().coerceIn(0f, 1f))   // tiefe Sonne: wärmer
+                drawRect(Brush.radialGradient(
+                    0f to lerp(Color(255, 214, 120), Color(255, 160, 90), warm).copy(alpha = k),
+                    .35f to Color(255, 170, 80).copy(alpha = k * .35f), 1f to Color.Transparent,
+                    center = Offset(wd * SkyLight.xOf(l.sunAz), y), radius = ht * .6f))
+            }
+        } else {
+            // Horizont-Glühen bei Auf-/Untergang
+            if (tm == SkyTime.DAWN || tm == SkyTime.DUSK) {
+                val k = when (w) { SkyWeather.CLEAR -> .55f; SkyWeather.PARTLY -> .4f; else -> .18f }
+                drawRect(Brush.radialGradient(
+                    0f to Color(255, 138, 76).copy(alpha = k), .45f to Color(170, 70, 120).copy(alpha = k * .45f), 1f to Color.Transparent,
+                    center = Offset(wd * .5f, ht * 1.05f), radius = ht * .7f))
+            }
+            // Sonnenschein am Tag
+            if (tm == SkyTime.DAY && clearish) {
+                val k = if (w == SkyWeather.CLEAR) .38f else .22f
+                drawRect(Brush.radialGradient(
+                    0f to Color(255, 214, 120).copy(alpha = k), .35f to Color(255, 170, 80).copy(alpha = k * .35f), 1f to Color.Transparent,
+                    center = Offset(wd * .85f, -10f), radius = ht * .6f))
+            }
         }
-        // Sonnenschein am Tag
-        if (tm == SkyTime.DAY && (w == SkyWeather.CLEAR || w == SkyWeather.PARTLY)) {
-            val k = if (w == SkyWeather.CLEAR) .38f else .22f
-            drawRect(Brush.radialGradient(
-                0f to Color(255, 214, 120).copy(alpha = k), .35f to Color(255, 170, 80).copy(alpha = k * .35f), 1f to Color.Transparent,
-                center = Offset(wd * .85f, -10f), radius = ht * .6f))
+        // Mond in seiner echten Phase an seiner echten Stelle (nur wenn er über dem Horizont steht und es dunkel ist)
+        if (l != null && clearish && l.moonAlt > 1 && l.night > .3f && l.moonLit > .03) {
+            val r = 12f * density
+            val c = Offset(wd * SkyLight.xOf(l.moonAz), (ht * (.30f - (l.moonAlt / 70.0).toFloat().coerceIn(0f, 1f) * .2f)).coerceAtLeast(70f * density))
+            val vis = (if (w == SkyWeather.CLEAR) 1f else .6f) * l.night
+            drawCircle(Brush.radialGradient(0f to Color(220, 228, 255).copy(alpha = .22f * vis * l.moonLit.toFloat()), 1f to Color.Transparent, center = c, radius = r * 6), r * 6, c)
+            drawCircle(Color(150, 160, 190).copy(alpha = .16f * vis), r, c)
+            drawPath(moonLitPath(c, r, l.moonLit.toFloat(), l.waxing), Color(236, 240, 250).copy(alpha = .9f * vis))
         }
         // Sterne
-        if (tm == SkyTime.NIGHT && (w == SkyWeather.CLEAR || w == SkyWeather.PARTLY)) {
-            val base = if (w == SkyWeather.CLEAR) .9f else .55f
+        val dark = l?.night ?: if (tm == SkyTime.NIGHT) 1f else 0f
+        if (dark > .05f && clearish) {
+            val base = (if (w == SkyWeather.CLEAR) .9f else .55f) * dark * (1f - .35f * ((l?.moonLit ?: 0.0).toFloat() * if ((l?.moonAlt ?: -1.0) > 0) 1f else 0f))
             stars.forEach { st ->
                 val a = base * (.55f + .45f * sin(t * 1.6f + st.b))
                 drawCircle(Color.White.copy(alpha = a.coerceIn(0f, 1f)), st.a * density, Offset(st.x * wd, st.y * ht))
@@ -215,6 +286,23 @@ fun SkyBackground(weather: SkyWeather, time: SkyTime, modifier: Modifier = Modif
         drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .25f), startY = ht * .55f, endY = ht),
             topLeft = Offset(0f, ht * .55f), size = Size(wd, ht * .45f))
     }
+}
+
+/** Beleuchteter Teil der Mondscheibe: Außenrand auf der hellen Seite + elliptische Schattengrenze. */
+internal fun moonLitPath(c: Offset, r: Float, lit: Float, waxing: Boolean): androidx.compose.ui.graphics.Path {
+    val p = androidx.compose.ui.graphics.Path()
+    val circle = androidx.compose.ui.geometry.Rect(c.x - r, c.y - r, c.x + r, c.y + r)
+    val rx = r * kotlin.math.abs(1f - 2f * lit)
+    val ell = androidx.compose.ui.geometry.Rect(c.x - rx, c.y - r, c.x + rx, c.y + r)
+    // zunehmend: rechts hell (Nordhalbkugel)
+    p.moveTo(c.x, c.y - r)
+    p.arcTo(circle, -90f, if (waxing) 180f else -180f, false)
+    // zurück nach oben über die Schattengrenze: Sichel (< halb) wölbt zur hellen Seite, Dreiviertel zur dunklen
+    val toLitSide = lit < .5f
+    val sweep = if (waxing == toLitSide) -180f else 180f
+    p.arcTo(ell, 90f, sweep, false)
+    p.close()
+    return p
 }
 
 /** Berechnet Wolken bzw. Nebel als ARGB-Pixel (gleiche Formeln wie die Vorschau). */

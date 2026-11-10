@@ -85,6 +85,7 @@ import de.schee.wetter.ui.sky.SkyWeather
 import de.schee.wetter.ui.theme.WColors
 import de.schee.wetter.ui.theme.WType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
@@ -109,6 +110,9 @@ fun MainScreen(
     previewNow: LocalDateTime? = null,
     previewEditTiles: Boolean = false,
     previewPageCount: Int = 1,
+    /** Radar (für „Regen in 12 Min.“) – vom Radar-ViewModel, das schon beim Öffnen lädt. */
+    radar: kotlinx.coroutines.flow.StateFlow<de.schee.wetter.ui.radar.RadarUi>? = null,
+    previewNowcast: de.schee.wetter.data.Nowcast.Series? = null,
 ) {
     val context = LocalContext.current
     val livePages by vm.pages.collectAsState()
@@ -149,7 +153,8 @@ fun MainScreen(
 
     val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = selected) { pageIds.size.coerceAtLeast(1) }
     // Wischen → Seite merken (lädt sie, falls nötig); Auswahl aus der Ortsliste → hinblättern
-    LaunchedEffect(pager.settledPage) { if (preview == null && pageIds.isNotEmpty()) { if (pager.settledPage != selected) AppLog.tap("Wisch → Seite ${pager.settledPage + 1}"); vm.select(pager.settledPage) } }
+    val haptic = rememberHaptics()
+    LaunchedEffect(pager.settledPage) { if (preview == null && pageIds.isNotEmpty()) { if (pager.settledPage != selected) { AppLog.tap("Wisch → Seite ${pager.settledPage + 1}"); haptic(Haptics.Kind.SNAP) }; vm.select(pager.settledPage) } }
     LaunchedEffect(selected, pageIds.size) { if (selected != pager.currentPage && selected < pageIds.size) pager.scrollToPage(selected) }
 
     Box(Modifier.fillMaxSize()) {
@@ -164,9 +169,10 @@ fun MainScreen(
             }
             WeatherPage(
                 ui = ui, isGps = id == WeatherViewModel.GPS, previewNow = previewNow, tileState = tileState, editTiles = editTiles,
+                radar = radar, previewNowcast = previewNowcast,
                 mode = mode, driveConnected = driveConnected,
                 onMode = { mode = it }, onEdit = { editTiles = it }, onOpenDay = { f, d -> openDay = f to d },
-                onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); vm.refresh("Herunterziehen") },
+                onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); haptic(Haptics.Kind.SNAP); vm.refresh("Herunterziehen") },
                 onAllowLocation = { permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) },
                 onSearch = onOpenPlaces, onPickFolder = { pickFolder.launch(null) }, onOpenRadar = onOpenRadar,
             )
@@ -205,6 +211,7 @@ fun MainScreen(
 private fun WeatherPage(
     ui: WeatherUi, isGps: Boolean, previewNow: LocalDateTime?, tileState: de.schee.wetter.ui.tiles.TileState, editTiles: Boolean,
     mode: Mode, driveConnected: Boolean,
+    radar: kotlinx.coroutines.flow.StateFlow<de.schee.wetter.ui.radar.RadarUi>?, previewNowcast: de.schee.wetter.data.Nowcast.Series?,
     onMode: (Mode) -> Unit, onEdit: (Boolean) -> Unit, onOpenDay: (de.schee.wetter.data.Forecast, Day) -> Unit,
     onRefresh: () -> Unit, onAllowLocation: () -> Unit, onSearch: () -> Unit, onPickFolder: () -> Unit,
     onOpenRadar: (de.schee.wetter.ui.radar.RadarLayer, String) -> Unit,
@@ -220,13 +227,32 @@ private fun WeatherPage(
     val skyWeather = f?.let { WeatherCodes.sky(it.current.code) } ?: SkyWeather.PARTLY
     val skyTime = WeatherCodes.skyTime(now, todayDay?.sunrise, todayDay?.sunset)
 
+    // Regen auf die Minute am Ort aus dem DWD-Radar (kurz warten, solange noch Bilder eintreffen)
+    val place = ui.place
+    val nowcast by androidx.compose.runtime.produceState(previewNowcast, place?.lat, place?.lon, radar) {
+        if (radar == null || place == null) return@produceState
+        radar.collectLatest { r ->
+            if (r.frames.isEmpty()) return@collectLatest
+            delay(500)
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching { de.schee.wetter.data.Nowcast.series(r.frames, r.bytes, place.lat, place.lon, Instant.now()) }.getOrNull()
+            }
+        }
+    }
+
     val scroll = rememberScrollState()
     val density = LocalDensity.current
     val collapsePx = with(density) { 170.dp.toPx() }
     val collapse = (scroll.value / collapsePx).coerceIn(0f, 1f)
 
     Box(Modifier.fillMaxSize()) {
-        SkyBackground(skyWeather, skyTime, Modifier.fillMaxSize())
+        // Echter Sonnen- und Mondstand am Ort (wird mit der Uhr jede Minute neu berechnet)
+        val lat = ui.place?.lat ?: f?.lat; val lon = ui.place?.lon ?: f?.lon
+        val light = remember(now, lat, lon) {
+            if (lat == null || lon == null) null
+            else de.schee.wetter.ui.sky.SkyLight.at(now.atZone(zone).toInstant().toEpochMilli(), lat, lon)
+        }
+        SkyBackground(skyWeather, skyTime, Modifier.fillMaxSize(), light)
 
         PullToRefreshBox(isRefreshing = ui.loading && f != null, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
             Column(
@@ -249,6 +275,15 @@ private fun WeatherPage(
                         Text("$shown°", style = WType.bigTemp, modifier = Modifier.padding(start = 24.dp))
                         Text(WeatherCodes.text(f.current.code, f.current.isDay), style = WType.condition)
                         todayDay?.let { Text("H: ${units.t(it.tMax)}  T: ${units.t(it.tMin)}", style = WType.highLow) }
+                        // Gefühlte Wahrheit und Vergleich mit gestern
+                        val extra = listOfNotNull("Fühlt sich ${de.schee.wetter.data.Feel.word(f.current)} an", de.schee.wetter.data.Yesterday.text(f, now))
+                        Text(extra.joinToString(" · "), style = WType.bodyDim, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                        // Regen in Sicht: kleine Pille „Regen in 12 Min.“
+                        val nc = nowcast
+                        val rainLine = nc?.let { de.schee.wetter.data.Nowcast.headline(it, Instant.now()) }
+                        AnimatedVisibility(rainLine != null, enter = fadeIn() + slideInVertically { -it / 2 }, exit = fadeOut()) {
+                            RainPill(rainLine ?: "")
+                        }
                     } else if (ui.loading) {
                         Spacer(Modifier.height(24.dp)); CircularProgressIndicator(color = WColors.Text, strokeWidth = 2.dp)
                     }
@@ -293,8 +328,9 @@ private fun WeatherPage(
                         Modifier.graphicsLayer { alpha = appear; translationY = (1 - appear) * lift },
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon)
-                        de.schee.wetter.ui.tiles.WarningTile(tileData, tileState) { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); onEdit(true) }
+                        val tileData = de.schee.wetter.ui.tiles.TileData(f, now, units, ui.warnings, ui.normalMax, ui.maps, ui.place?.lat ?: f.lat, ui.place?.lon ?: f.lon, nowcast)
+                        de.schee.wetter.ui.tiles.WarningTile(tileData, tileState, onEdit = { AppLog.tap("Warnung lange gedrückt → Bearbeiten"); onEdit(true) },
+                            onMap = { onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Warnung") })
                         HourlyCard(f, now, mode, units, onMode)
                         DailyCard(f, today, mode, units) { onOpenDay(f, it) }
                         de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = onEdit, onOpenMap = onOpenRadar)
@@ -402,6 +438,28 @@ private fun RoundButton(glyph: String, onClick: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** „Regen in 12 Min.“ unter dem Kopf – Tropfen + Text in einer dunklen Glas-Pille. */
+@Composable
+private fun RainPill(text: String) {
+    Row(
+        Modifier.padding(top = 10.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .30f)).padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(9.dp, 12.dp)) {
+            val w = size.width; val h = size.height
+            drawPath(Path().apply {
+                moveTo(w / 2, 0f)
+                cubicTo(w * .9f, h * .45f, w, h * .62f, w, h * .7f)
+                cubicTo(w, h * .9f, w * .75f, h, w / 2, h)
+                cubicTo(w * .25f, h, 0f, h * .9f, 0f, h * .7f)
+                cubicTo(0f, h * .62f, w * .1f, h * .45f, w / 2, 0f); close()
+            }, WColors.Rain)
+        }
+        Spacer(Modifier.width(7.dp))
+        Text(text, style = WType.small)
     }
 }
 

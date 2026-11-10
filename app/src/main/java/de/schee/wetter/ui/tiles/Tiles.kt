@@ -2,6 +2,7 @@ package de.schee.wetter.ui.tiles
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -71,12 +73,14 @@ class TileData(
     val maps: MapImages.Layers?,
     val lat: Double,
     val lon: Double,
+    /** Regen auf die Minute aus dem DWD-Radar (null = außerhalb Deutschlands oder noch nicht geladen). */
+    val nowcast: de.schee.wetter.data.Nowcast.Series? = null,
 )
 
 // ------------------------------------------------------------ Unwetterwarnung
 
 @Composable
-fun WarningContent(d: TileData, expanded: Boolean) {
+fun WarningContent(d: TileData, expanded: Boolean, onMap: () -> Unit = {}) {
     d.warnings.forEachIndexed { i, w ->
         if (i > 0) HorizontalDivider(color = WColors.CardBorder)
         val color = when (w.level) { 4 -> Color(0xFFB83CFF); 3 -> WColors.Bad; 2 -> WColors.Warn; else -> Color(0xFFFFD60A) }
@@ -88,6 +92,8 @@ fun WarningContent(d: TileData, expanded: Boolean) {
         if (until != null) Text("bis ${Timeline.dayLong(until.toLocalDate(), d.now.toLocalDate())}, ${"%02d:%02d".format(until.hour, until.minute)} Uhr", style = WType.bodyDim)
         if (expanded && w.description.isNotBlank()) Text(w.description, style = WType.bodyDim)
     }
+    if (expanded) Text("Warngebiet auf der Karte zeigen ›", style = WType.small.copy(color = WColors.Accent),
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { de.schee.wetter.log.AppLog.tap("Kachel Unwetterwarnung → Warngebiet auf der Karte"); onMap() }.padding(vertical = 4.dp))
     Text(if (expanded) "Quelle: Deutscher Wetterdienst" else "Tippen für Details · Quelle: DWD", style = WType.label.copy(color = WColors.Label))
 }
 
@@ -150,18 +156,51 @@ object RainSoon {
 
 @Composable
 fun Rain2hContent(d: TileData) {
-    val slots = RainSoon.slots(d)
-    Text(RainSoon.summary(slots), style = WType.body)
-    val max = maxOf(0.5, slots.maxOfOrNull { it.second } ?: 0.0)
-    Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
-        slots.forEach { (_, mm) ->
-            val frac = (mm / max).toFloat().coerceIn(0f, 1f)
-            Box(Modifier.weight(1f).height((4 + 52 * frac).dp).clip(RoundedCornerShape(4.dp))
-                .background(if (mm >= 0.1) WColors.Rain else WColors.Glass))
-        }
+    // Radar (5 Minuten, Deutschland) – sonst Modell (15 Minuten)
+    val nc = d.nowcast
+    val nowI = java.time.Instant.now()
+    val pts: List<Pair<Float, Double>>
+    val text: String
+    if (nc != null) {
+        pts = nc.steps.map { (t, mm) -> ((t.epochSecond - nowI.epochSecond) / 60f) to mm }
+        text = de.schee.wetter.data.Nowcast.summary(nc, nowI)
+    } else {
+        val slots = RainSoon.slots(d)
+        pts = slots.mapIndexed { i, (_, mm) -> (i * 15f) to mm * 4 }   // mm je 15 min → mm/h
+        text = RainSoon.summary(slots)
     }
+    Text(text, style = WType.body)
+    RainCurve(pts, Modifier.fillMaxWidth().height(78.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        listOf(0, 4, 7).forEach { i -> slots.getOrNull(i)?.let { Text(if (i == 0) "Jetzt" else Timeline.hhmm(it.first), style = WType.label.copy(color = WColors.Label)) } }
+        listOf("Jetzt", "30 Min.", "60 Min.", "90 Min.", "2 Std.").forEach { Text(it, style = WType.label.copy(color = WColors.Label)) }
+    }
+    Text(if (nc != null) "Quelle: DWD-Radar, alle 5 Minuten" else "Quelle: Modell ICON-D2, alle 15 Minuten", style = WType.label.copy(color = WColors.Label))
+}
+
+/** Weiche Regenkurve wie bei iOS: drei gestrichelte Linien (leicht · mäßig · stark), Fläche mit Verlauf. */
+@Composable
+private fun RainCurve(pts: List<Pair<Float, Double>>, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        // Stärke auf 0…1: 0,1 mm/h ≈ 0,15 · 2,5 mm/h ≈ 0,55 · 10 mm/h ≈ 0,9
+        fun level(mm: Double) = if (mm < 0.05) 0f else (kotlin.math.ln(1 + mm * 4) / kotlin.math.ln(41.0)).toFloat().coerceIn(.06f, 1f)
+        val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3 * density, 4 * density))
+        listOf(.33f, .66f, 1f).forEach { k -> drawLine(Color.White.copy(alpha = .14f), Offset(0f, h * (1 - k * .92f)), Offset(w, h * (1 - k * .92f)), 1 * density, pathEffect = dash) }
+        if (pts.size < 2) return@Canvas
+        fun x(m: Float) = (m / 120f).coerceIn(0f, 1f) * w
+        fun y(mm: Double) = h - level(mm) * h * .92f
+        val line = Path(); val area = Path()
+        pts.forEachIndexed { i, (m, mm) ->
+            val px = x(m); val py = y(mm)
+            if (i == 0) { line.moveTo(px, py); area.moveTo(px, h); area.lineTo(px, py) }
+            else {
+                val (pm, pmm) = pts[i - 1]; val qx = x(pm); val qy = y(pmm); val cx = (qx + px) / 2
+                line.cubicTo(cx, qy, cx, py, px, py); area.cubicTo(cx, qy, cx, py, px, py)
+            }
+        }
+        area.lineTo(x(pts.last().first), h); area.close()
+        drawPath(area, Brush.verticalGradient(listOf(WColors.Rain.copy(alpha = .75f), WColors.Rain.copy(alpha = .12f))))
+        drawPath(line, WColors.Rain, style = Stroke(2 * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 

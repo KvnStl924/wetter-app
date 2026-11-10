@@ -66,7 +66,17 @@ fun HourlyCard(f: Forecast, now: LocalDateTime, mode: Mode, units: Units, onMode
         }
         HorizontalDivider(color = WColors.CardBorder)
         val maxRain = max(1.0, items.filterIsInstance<HourItem.H>().maxOfOrNull { it.hour.precip } ?: 0.0)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Beim Wischen durch die Stunden: feines Ticken je Stunde (Premium-Haptik)
+        val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val haptic = de.schee.wetter.ui.rememberHaptics()
+        androidx.compose.runtime.LaunchedEffect(rowState) {
+            var last = -1
+            androidx.compose.runtime.snapshotFlow { rowState.firstVisibleItemIndex }.collect { i ->
+                if (last >= 0 && i != last && rowState.isScrollInProgress) haptic(de.schee.wetter.ui.Haptics.Kind.TICK)
+                last = i
+            }
+        }
+        LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(items, key = { it.time.toString() + (it is HourItem.Sun) }) { item ->
                 Column(
                     if (item is HourItem.Sun) Modifier.widthIn(min = 48.dp) else Modifier.width(48.dp),
@@ -232,6 +242,34 @@ private fun RainBar(frac: Double, modifier: Modifier, color: Color = WColors.Rai
     }
 }
 
+/** „Wie sicher ist die Vorhersage?“ – drei Balken (gering/mittel/hoch) und was die Modelle sagen. */
+@Composable
+fun ConfidenceBlock(c: de.schee.wetter.data.Confidence, units: Units) {
+    val color = when (c.level) { 3 -> WColors.Good; 2 -> Color(0xFFFFD60A); else -> WColors.Warn }
+    Column(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = .06f)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("SICHERHEIT DER VORHERSAGE", style = WType.label.copy(color = WColors.Label))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(c.label.replaceFirstChar { it.uppercase() }, style = WType.condition.copy(color = color))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (i in 1..3) Box(Modifier.width(22.dp).height(6.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
+                    .background(if (i <= c.level) color else Color.White.copy(alpha = .14f)))
+            }
+        }
+        val dry = c.models - c.wetModels
+        val rain = when {
+            c.wetModels == 0 -> "Alle ${c.models} Wettermodelle rechnen mit einem trockenen Tag."
+            dry == 0 -> "Alle ${c.models} Wettermodelle rechnen mit Regen."
+            else -> "${c.wetModels} von ${c.models} Wettermodellen rechnen mit Regen."
+        }
+        val lo = units.tNum(c.tMaxLow); val hi = units.tNum(c.tMaxHigh)
+        Text(rain + "\n" + (if (lo == hi) "Höchstwert überall $lo°." else "Höchstwert je nach Modell $lo° bis $hi°."), style = WType.bodyDim)
+        Text("Verglichen: ICON (DWD), ECMWF, GFS (USA), UKMO (Großbritannien), Météo-France, GEM (Kanada)", style = WType.label.copy(color = WColors.Label))
+    }
+}
+
 /** Inhalt des Tages-Fensters (Tippen auf einen Tag). */
 @Composable
 fun DayDetails(f: Forecast, d: Day, today: LocalDate, units: Units) {
@@ -253,10 +291,11 @@ fun DayDetails(f: Forecast, d: Day, today: LocalDate, units: Units) {
                 d.gustMax?.let { append(", Böen bis ${units.w(it)}") }
                 if (d.sunrise != null && d.sunset != null) append("\nSonne ${Timeline.hhmm(d.sunrise)} – ${Timeline.hhmm(d.sunset)}")
                 append("\nQuelle: Modell ${if (d.model == "ICON") "ICON-D2 (DWD)" else "ECMWF"}")
-                if (d.uncertain) append("\nDie Wettermodelle sind sich für diesen Tag uneinig – die Vorhersage ist unsicher.")
+                if (d.uncertain && f.confidence[d.date] == null) append("\nDie Wettermodelle sind sich für diesen Tag uneinig – die Vorhersage ist unsicher.")
             },
             style = WType.bodyDim,
         )
+        f.confidence[d.date]?.let { ConfidenceBlock(it, units) }
         if (hours.isNotEmpty()) {
             HorizontalDivider(color = WColors.CardBorder)
             hours.forEach { h ->

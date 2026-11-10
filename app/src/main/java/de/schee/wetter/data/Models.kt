@@ -57,7 +57,24 @@ data class Forecast(
     val days: List<Day>,
     /** 15-Minuten-Niederschlag (ICON-D2), mm je 15 min. */
     val minutely: List<Pair<LocalDateTime, Double>>,
+    /** Stundenwerte von gestern (für „3° kälter als gestern“). */
+    val yesterday: List<Hour> = emptyList(),
+    /** Wie sicher ist die Vorhersage je Tag (Vergleich mehrerer Wettermodelle)? */
+    val confidence: Map<LocalDate, Confidence> = emptyMap(),
 )
+
+/** Vergleich mehrerer Wettermodelle für einen Tag. */
+data class Confidence(
+    /** 3 = hoch, 2 = mittel, 1 = gering */
+    val level: Int,
+    val models: Int,
+    /** So viele Modelle rechnen mit Regen (≥ 1 mm). */
+    val wetModels: Int,
+    val tMaxLow: Double,
+    val tMaxHigh: Double,
+) {
+    val label get() = when (level) { 3 -> "hoch"; 2 -> "mittel"; else -> "gering" }
+}
 
 data class Place(val name: String, val lat: Double, val lon: Double, val fromGps: Boolean)
 

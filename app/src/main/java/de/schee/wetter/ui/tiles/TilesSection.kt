@@ -62,12 +62,12 @@ class TileState(private val store: TileStore) {
 /** Warnung immer ganz oben, nur wenn aktiv und nicht ausgeblendet. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun WarningTile(d: TileData, state: TileState, onEdit: () -> Unit) {
+fun WarningTile(d: TileData, state: TileState, onEdit: () -> Unit, onMap: () -> Unit = {}) {
     if (d.warnings.isEmpty() || TileId.WARNING in state.hidden) return
     var expanded by remember { mutableStateOf(false) }
     TileFrame(TileId.WARNING.title, Modifier.fillMaxWidth(), border = WColors.Warn.copy(alpha = .6f),
         onClick = { AppLog.tap("Kachel Unwetterwarnung → ${if (expanded) "zugeklappt" else "Details"}"); expanded = !expanded }, onLongClick = onEdit) {
-        WarningContent(d, expanded)
+        WarningContent(d, expanded, onMap)
     }
 }
 
@@ -151,12 +151,14 @@ fun TileFrame(
     title: String, modifier: Modifier, border: Color = WColors.CardBorder,
     onClick: () -> Unit, onLongClick: () -> Unit, content: @Composable () -> Unit,
 ) {
+    val haptic = de.schee.wetter.ui.rememberHaptics()
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
             .background(WColors.Card)
             .border(1.dp, border, RoundedCornerShape(18.dp))
-            .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick,
+                onLongClick = { haptic(de.schee.wetter.ui.Haptics.Kind.PRESS); onLongClick() })
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

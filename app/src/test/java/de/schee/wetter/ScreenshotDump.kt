@@ -1,5 +1,6 @@
 package de.schee.wetter
 
+import androidx.compose.foundation.background
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
@@ -40,9 +41,39 @@ class ScreenshotDump {
             warnings = de.schee.wetter.data.WarningsRepository.parse(res("warnings.json")))
         val now = f.days[0].sunrise!!.plusHours(5)
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
-        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now, previewPageCount = 3) } } }
+        // Regen auf die Minute: trocken, ab 15 Minuten leichter, dann mäßiger Regen
+        val t0 = java.time.Instant.now()
+        val nc = de.schee.wetter.data.Nowcast.Series((0..24).map { i -> t0.plusSeconds(i * 300L) to when { i < 3 -> 0.0; i < 8 -> 0.4 * (i - 2); i < 14 -> 3.0; i < 18 -> 1.0; else -> 0.0 } })
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = now, previewPageCount = 3, previewNowcast = nc) } } }
         settle()
         save(activity.window.decorView, File(out, "main_top.png"))
+    }
+
+    @Test fun mainNight() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis())
+        // klarer Himmel erzwingen, damit Mond und Sterne zu sehen sind
+        val ui = WeatherUi(place = Place("Mechernich", 50.59, 6.65, true), forecast = f.copy(current = f.current.copy(code = 0, isDay = false)), normalMax = 9.0)
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { MainScreen(onOpenSettings = {}, preview = ui, previewNow = f.days[0].sunset!!.plusHours(4)) } } }
+        settle()
+        save(activity.window.decorView, File(target, "main_nacht.png"))
+    }
+
+    @Test fun mainScrolled() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis(), res("multi.json"))
+        val d = f.days.first { f.confidence[it.date] != null }
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.background(androidx.compose.ui.graphics.Color(0xFF141A2B))) {
+                de.schee.wetter.ui.main.DayDetails(f, d, d.date, de.schee.wetter.data.Units("°C", "km/h"))
+            }
+        } } }
+        settle()
+        save(activity.window.decorView, File(target, "tag_sicherheit.png"))
     }
 
     @Test fun mainOffline() {
@@ -120,8 +151,9 @@ class ScreenshotDump {
     @Test fun cloudsWorld() = radarShot(de.schee.wetter.ui.radar.RadarLayer.CLOUDS, "wolken_welt.png", area = doubleArrayOf(-100.0, 60.0, -60.0, 75.0))
     @Test fun lightning() = radarShot(null, "blitze.png", lightning = true, area = doubleArrayOf(0.0, 25.0, -12.0, 14.0))
     @Test fun rainLightning() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "regen_blitze.png", lightning = true)
+    @Test fun radarPick() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_antippen.png", pick = true)
 
-    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer?, name: String, forecast: Boolean = false, lightning: Boolean = false, area: DoubleArray? = null) {
+    private fun radarShot(layer: de.schee.wetter.ui.radar.RadarLayer?, name: String, forecast: Boolean = false, lightning: Boolean = false, area: DoubleArray? = null, pick: Boolean = false) {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
         fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
@@ -153,7 +185,9 @@ class ScreenshotDump {
         fun c(n: String, lat: Double, lon: Double, r: Int) = de.schee.wetter.ui.radar.MapCity(n, lat, lon, r)
         activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme { de.schee.wetter.ui.radar.RadarScreen(place, layer, onClose = {}, vm = vm, preview = base, previewFix = de.schee.wetter.data.LocationSource.Fix(50.60, 6.66, 25f),
             previewCities = if (area != null) emptyList() else listOf(c("Köln", 50.94, 6.96, 3), c("Düsseldorf", 51.23, 6.78, 3), c("Berlin", 52.52, 13.40, 1), c("Hamburg", 53.55, 9.99, 2), c("München", 48.14, 11.58, 2), c("Frankfurt am Main", 50.11, 8.68, 3), c("Leipzig", 51.34, 12.37, 4), c("Hannover", 52.38, 9.73, 4)),
-            previewLightning = lightning, previewArea = area) } } }
+            previewLightning = lightning, previewArea = area,
+            previewPick = if (pick) de.schee.wetter.ui.radar.Picked(50.94, 6.96, "Köln", 4.2, 18.0, "Regen in 25 Min.") else null,
+            previewMotion = if (pick) de.schee.wetter.data.Nowcast.Motion(60.0, 35.0, 50.2, 5.9, 50.5, 6.6) else null) } } }
         settle(); Thread.sleep(500); settle()
         save(activity.window.decorView, File(target, name).also { it.parentFile?.mkdirs() })
     }

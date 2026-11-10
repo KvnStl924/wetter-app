@@ -30,6 +30,11 @@ class Units(val temp: String, val wind: String) {
             return limits.indexOfFirst { kmh < it }.let { if (it < 0) 12 else it }
         }
 
+        fun compassLong(deg: Int): String {
+            val names = listOf("Norden", "Nordosten", "Osten", "Südosten", "Süden", "Südwesten", "Westen", "Nordwesten")
+            return names[((deg % 360 + 360) % 360 + 22) / 45 % 8]
+        }
+
         fun compass(deg: Int): String {
             val names = listOf("N", "NO", "O", "SO", "S", "SW", "W", "NW")
             return names[((deg % 360 + 360) % 360 + 22) / 45 % 8]

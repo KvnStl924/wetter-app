@@ -51,7 +51,7 @@ class WeatherRepository(private val context: Context) {
         val f = cacheFile(lat, lon)
         if (!f.exists()) return null
         val o = JSONObject(f.readText())
-        ForecastParser.parse(o.getString("icon"), o.getString("ecmwf"), o.getLong("fetchedAt"))
+        ForecastParser.parse(o.getString("icon"), o.getString("ecmwf"), o.getLong("fetchedAt"), o.optString("multi").ifEmpty { null })
     }.onFailure { AppLog.error("Gespeicherte Vorhersage nicht lesbar", it) }.getOrNull()
 
     suspend fun load(lat: Double, lon: Double): Forecast = withContext(Dispatchers.IO) {
@@ -60,7 +60,7 @@ class WeatherRepository(private val context: Context) {
             val icon = async {
                 Http.text(
                     "Open-Meteo ICON",
-                    "https://api.open-meteo.com/v1/forecast?$ll&models=icon_seamless&timezone=auto&forecast_days=7" +
+                    "https://api.open-meteo.com/v1/forecast?$ll&models=icon_seamless&timezone=auto&forecast_days=7&past_days=1" +
                         "&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,is_day,precipitation" +
                         "&hourly=temperature_2m,weather_code,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,is_day" +
                         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset" +
@@ -75,12 +75,22 @@ class WeatherRepository(private val context: Context) {
                         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset"
                 )
             }
+            // Modellvergleich (6 Modelle, nur Tageswerte) – fehlt er, bleibt der ICON/ECMWF-Vergleich
+            val multi = async {
+                runCatching {
+                    Http.text(
+                        "Open-Meteo Modellvergleich",
+                        "https://api.open-meteo.com/v1/forecast?$ll&timezone=auto&forecast_days=10&daily=temperature_2m_max,precipitation_sum" +
+                            "&models=${ForecastParser.MULTI_MODELS.joinToString(",")}"
+                    )
+                }.getOrNull()
+            }
             val now = System.currentTimeMillis()
-            val i = icon.await(); val e = ecmwf.await()
-            val forecast = ForecastParser.parse(i, e, now)
+            val i = icon.await(); val e = ecmwf.await(); val m = multi.await()
+            val forecast = ForecastParser.parse(i, e, now, m)
             runCatching {
                 val f = cacheFile(lat, lon); f.parentFile?.mkdirs()
-                f.writeText(JSONObject().put("icon", i).put("ecmwf", e).put("fetchedAt", now).toString())
+                f.writeText(JSONObject().put("icon", i).put("ecmwf", e).put("fetchedAt", now).apply { if (m != null) put("multi", m) }.toString())
             }
             forecast
         }

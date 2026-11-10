@@ -54,6 +54,33 @@ object Astro {
     private fun siderealTime(d: Double, lw: Double) = RAD * (280.16 + 360.9856235 * d) - lw
     private fun refraction(h0: Double): Double { val h = if (h0 < 0) 0.0 else h0; return 0.0002967 / tan(h + 0.00312536 / (h + 0.08901179)) }
 
+    /** Höhe (Grad über dem Horizont) und Richtung (Grad, 0 = Nord, 90 = Ost) am Himmel. */
+    data class SkyPos(val altDeg: Double, val azDeg: Double)
+
+    private fun azimuth(h: Double, phi: Double, dec: Double) = atan2(sin(h), cos(h) * sin(phi) - tan(dec) * cos(phi))
+
+    /** Stand der Sonne. */
+    fun sun(epochMs: Long, lat: Double, lon: Double): SkyPos {
+        val lw = RAD * -lon; val phi = RAD * lat; val d = toDays(epochMs.toDouble())
+        val m = RAD * (357.5291 + 0.98560028 * d)
+        val c = RAD * (1.9148 * sin(m) + 0.02 * sin(2 * m) + 0.0003 * sin(3 * m))
+        val l = m + c + RAD * 102.9372 + PI
+        val dec = declination(l, 0.0); val ra = rightAscension(l, 0.0)
+        val h = siderealTime(d, lw) - ra
+        return SkyPos(altitude(h, phi, dec) / RAD, (azimuth(h, phi, dec) / RAD + 180 + 360) % 360)
+    }
+
+    /** Stand des Mondes. */
+    fun moonPos(epochMs: Long, lat: Double, lon: Double): SkyPos {
+        val ms = epochMs.toDouble()
+        val lw = RAD * -lon; val phi = RAD * lat; val d = toDays(ms)
+        val l0 = RAD * (218.316 + 13.176396 * d); val m = RAD * (134.963 + 13.064993 * d); val f = RAD * (93.272 + 13.229350 * d)
+        val l = l0 + RAD * 6.289 * sin(m); val b = RAD * 5.128 * sin(f)
+        val ra = rightAscension(l, b); val dec = declination(l, b)
+        val h = siderealTime(d, lw) - ra
+        return SkyPos(moonAltitude(ms, lat, lon) / RAD, (azimuth(h, phi, dec) / RAD + 180 + 360) % 360)
+    }
+
     private fun moonAltitude(ms: Double, lat: Double, lon: Double): Double {
         val lw = RAD * -lon; val phi = RAD * lat; val d = toDays(ms)
         val l0 = RAD * (218.316 + 13.176396 * d); val m = RAD * (134.963 + 13.064993 * d); val f = RAD * (93.272 + 13.229350 * d)

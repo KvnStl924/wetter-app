@@ -172,6 +172,46 @@ private fun addOverlayLayers(s: Style) {
     ).withFilter(Expression.all(Expression.has("value"), Expression.not(withPill))))
 }
 
+/** Standort, Zugrichtung und angetippter Punkt – ganz oben. */
+private fun addMeLayers(s: Style) {
+    s.addSource(GeoJsonSource("motion")); s.addSource(GeoJsonSource("pick")); s.addSource(GeoJsonSource("me"))
+    s.addLayer(org.maplibre.android.style.layers.LineLayer("motion-casing", "motion").withProperties(
+        PropertyFactory.lineColor("rgba(0,0,0,0.55)"), PropertyFactory.lineWidth(6.5f),
+        PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+    s.addLayer(org.maplibre.android.style.layers.LineLayer("motion-line", "motion").withProperties(
+        PropertyFactory.lineColor("#FFFFFF"), PropertyFactory.lineWidth(3f), PropertyFactory.lineOpacity(.92f),
+        PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("pick-ring", "pick").withProperties(
+        PropertyFactory.circleRadius(9f), PropertyFactory.circleColor("rgba(255,255,255,0.18)"),
+        PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2.2f)))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("me-acc", "me").withProperties(
+        PropertyFactory.circleRadius(0f), PropertyFactory.circleColor("#0A84FF"), PropertyFactory.circleOpacity(.14f), PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("me-pulse", "me").withProperties(
+        PropertyFactory.circleRadius(12f), PropertyFactory.circleColor("#0A84FF"), PropertyFactory.circleOpacity(.2f)))
+    s.addLayer(org.maplibre.android.style.layers.CircleLayer("me-dot", "me").withProperties(
+        PropertyFactory.circleRadius(6.5f), PropertyFactory.circleColor("#0A84FF"),
+        PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2.5f)))
+}
+
+/** Pfeil der Zugrichtung: Schaft und zwei Spitzen-Striche (in Mercator gerechnet, damit er nicht verzerrt). */
+private fun motionFeatures(m: de.schee.wetter.data.Nowcast.Motion?): FeatureCollection {
+    if (m == null) return FeatureCollection.fromFeatures(emptyList())
+    val x0 = RadarData.mercX(m.fromLon); val y0 = RadarData.mercY(m.fromLat)
+    val x1 = RadarData.mercX(m.toLon); val y1 = RadarData.mercY(m.toLat)
+    val len = kotlin.math.hypot(x1 - x0, y1 - y0); if (len == 0.0) return FeatureCollection.fromFeatures(emptyList())
+    val ux = (x1 - x0) / len; val uy = (y1 - y0) / len
+    val head = len * .28
+    fun pt(x: Double, y: Double): Point {
+        val lat = Math.toDegrees(2 * kotlin.math.atan(kotlin.math.exp(y / 20037508.34 * Math.PI)) - Math.PI / 2)
+        return Point.fromLngLat(x * 180.0 / 20037508.34, lat)
+    }
+    fun side(sign: Double) = pt(x1 - ux * head + sign * -uy * head * .62, y1 - uy * head + sign * ux * head * .62)
+    return FeatureCollection.fromFeatures(listOf(
+        Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(listOf(pt(x0, y0), pt(x1, y1)))),
+        Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(listOf(side(1.0), pt(x1, y1), side(-1.0)))),
+    ))
+}
+
 private fun quad(west: Double, east: Double, south: Double, north: Double) =
     LatLngQuad(LatLng(north, west), LatLng(north, east), LatLng(south, east), LatLng(south, west))
 
@@ -208,6 +248,18 @@ fun RadarMap(
     labels: List<MapLabel> = emptyList(),
     /** Blitze (leer = aus) und der jüngste Abschnitt mit Daten (für das Alter). */
     strikes: List<Satellite.Strike> = emptyList(), strikesNewest: java.time.Instant? = null,
+    /** Blauer Standort-Punkt – in der Karte gezeichnet, damit er beim Wischen fest sitzt. */
+    fix: de.schee.wetter.data.LocationSource.Fix? = null,
+    /** Zugrichtung des Regens (Pfeil), null = keiner. */
+    motion: de.schee.wetter.data.Nowcast.Motion? = null,
+    /** Amtliche Warngebiete des DWD einblenden. */
+    warnings: Boolean = false,
+    /** Angetippter Punkt (weißer Ring). */
+    pick: Pair<Double, Double>? = null,
+    /** Tippen (lang = true) auf die Karte. */
+    onTap: ((Double, Double, Boolean) -> Unit)? = null,
+    /** Karte wird gerade verschoben/gezoomt (true) bzw. steht wieder (false). */
+    onMoving: (Boolean) -> Unit = {},
     onTransform: (MapTransform) -> Unit,
 ) {
     val context = LocalContext.current
@@ -216,6 +268,8 @@ fun RadarMap(
     var style by remember { mutableStateOf<Style?>(null) }
     val report by rememberUpdatedState(onTransform)
     val reportCities by rememberUpdatedState(onCities)
+    val tap by rememberUpdatedState(onTap)
+    val moving by rememberUpdatedState(onMoving)
 
     val view = remember {
         MapLibre.getInstance(context)
@@ -282,6 +336,11 @@ fun RadarMap(
                 }
             }
             m.addOnCameraMoveListener { send() }
+            m.addOnCameraMoveStartedListener { moving(true) }
+            if (!mini) {
+                m.addOnMapClickListener { ll -> tap?.invoke(ll.latitude, ll.longitude, false); tap != null }
+                m.addOnMapLongClickListener { ll -> tap?.invoke(ll.latitude, ll.longitude, true); tap != null }
+            }
             // Orte aus den Beschriftungs-Ebenen des Kartenstils (die Karte hat sie schon so verteilt, dass nichts überlappt)
             fun cities() {
                 runCatching {
@@ -310,7 +369,7 @@ fun RadarMap(
                     reportCities(found, current())
                 }
             }
-            m.addOnCameraIdleListener { send(); cities() }
+            m.addOnCameraIdleListener { send(); cities(); moving(false) }
             // nach dem Nachladen von Kacheln höchstens alle 1,5 s erneut (vorher bei jeder Kachel → Ruckeln)
             var lastCities = 0L
             view.addOnDidBecomeIdleListener { val now = System.currentTimeMillis(); if (now - lastCities > 1500) { lastCities = now; cities() } }
@@ -345,7 +404,17 @@ fun RadarMap(
                 listOf(raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f)).forEach { below(it, firstLine) }
                 // Regen darüber (über Grenzen, unter Ortsnamen)
                 listOf(raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
+                // Amtliche Warngebiete (DWD-WMS, Gemeinden) – erst beim Einschalten sichtbar
+                val warnTiles = org.maplibre.android.style.sources.TileSet("2.2.0",
+                    "https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap&layers=dwd:Warnungen_Gemeinden&styles=" +
+                        "&format=image/png&transparent=true&width=512&height=512&crs=EPSG:3857&bbox={bbox-epsg-3857}").apply {
+                    attribution = "Warnungen: Deutscher Wetterdienst"; minZoom = 4f; maxZoom = 11f
+                }
+                s.addSource(org.maplibre.android.style.sources.RasterSource("warn", warnTiles, 512))
+                below(RasterLayer("warn-layer", "warn").withProperties(PropertyFactory.rasterOpacity(.55f), PropertyFactory.rasterFadeDuration(150f),
+                    PropertyFactory.visibility(Property.NONE)), firstLine)
                 addOverlayLayers(s)
+                addMeLayers(s)
                 style = s
                 send()
             }
@@ -421,6 +490,39 @@ fun RadarMap(
         val g = v.first
         src.setCoordinates(quad(g.lon0 - g.step / 2, g.lon1 + g.step / 2, (g.lat0 - g.step / 2).coerceAtLeast(-85.0), (g.lat1 + g.step / 2).coerceAtMost(85.0)))
         src.setImage(v.second)
+    }
+
+    LaunchedEffect(style, warnings) {
+        style?.getLayer("warn-layer")?.setProperties(PropertyFactory.visibility(if (warnings) Property.VISIBLE else Property.NONE))
+    }
+    LaunchedEffect(style, motion) { (style?.getSource("motion") as? GeoJsonSource)?.setGeoJson(motionFeatures(motion)) }
+    LaunchedEffect(style, pick) {
+        (style?.getSource("pick") as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
+            listOfNotNull(pick?.let { Feature.fromGeometry(Point.fromLngLat(it.second, it.first)) })))
+    }
+    // Standort: Punkt + Genauigkeitskreis (Meter → Bildpunkte je nach Zoom) + sanftes Pulsieren
+    LaunchedEffect(style, fix) {
+        val s = style ?: return@LaunchedEffect
+        val f = fix
+        (s.getSource("me") as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
+            listOfNotNull(f?.let { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) })))
+        if (f != null) {
+            val dp0 = f.accuracyM * 512.0 / (40_075_016.0 * kotlin.math.cos(Math.toRadians(f.lat)))
+            s.getLayer("me-acc")?.setProperties(PropertyFactory.circleRadius(Expression.interpolate(Expression.exponential(2), Expression.zoom(),
+                Expression.stop(0, dp0), Expression.stop(22, dp0 * 4194304.0))))
+        }
+    }
+    LaunchedEffect(style, fix != null, animate) {
+        val s = style ?: return@LaunchedEffect
+        if (fix == null || !animate) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val start = System.nanoTime()
+            while (true) {
+                val p = (((System.nanoTime() - start) / 1e9) % 1.8 / 1.8).toFloat()
+                s.getLayer("me-pulse")?.setProperties(PropertyFactory.circleRadius(8f + 14f * p), PropertyFactory.circleOpacity(.35f * (1 - p)))
+                kotlinx.coroutines.delay(40)
+            }
+        }
     }
 
     // Kachel: immer auf den aktuellen Ort ausgerichtet

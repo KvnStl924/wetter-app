@@ -1,6 +1,17 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 1.0.0 – Regen auf die Minute, Warnkarte, echter Himmel
+- Regen auf die Minute aus dem DWD-Radar: unter der Temperatur „Regen in 15 Min.“ bzw. „Regen hört in 10 Min. auf“; Kachel „Regen nächste 2 Std.“ als weiche Kurve in 5-Minuten-Schritten
+- Unter der Temperatur: wie es sich anfühlt („Fühlt sich frisch an“, „schwül“, „beißender Wind“ …) und der Vergleich mit gestern („3° kälter als gestern“)
+- Sicherheit der Vorhersage: 6 Wettermodelle (ICON, ECMWF, GFS, UKMO, Météo-France, GEM) werden je Tag verglichen; in den Tagesdetails mit Balken und „4 von 6 Modellen rechnen mit Regen“
+- Radar: auf die Karte tippen zeigt Ort, Temperatur, Wind und Regen in den nächsten 2 Stunden; lange drücken speichert den Ort
+- Radar: Pfeil und Text zeigen, wohin der Regen zieht und wie schnell
+- Radar: neuer Schalter für die amtlichen Warngebiete des DWD; aus der Warn-Kachel „Warngebiet auf der Karte zeigen“
+- Radar: der blaue Standort-Punkt sitzt jetzt fest in der Karte; die Windteilchen blenden beim Wischen kurz aus statt hinterherzuhängen
+- Fein abgestimmte Vibration: leises Ticken beim Wischen durch Zeitleisten und Stunden, Klick beim Umschalten, satter Druck beim langen Drücken, Doppel-Klick beim Speichern
+- Hintergrund nach echtem Sonnenstand: stufenlose Dämmerung, Sonnenlicht und Abendrot dort, wo die Sonne wirklich steht; nachts der Mond in seiner echten Phase
+
 ## 0.6.7 – Radar wieder flüssig
 - Die Auswahl der Orte läuft im Hintergrund statt im Haupt-Thread – kein Ruckeln mehr, wenn die Karte nach dem Wischen stehen bleibt
 - Kartendaten werden seltener und nur bei nahem Zoom nach Dörfern abgefragt; der Standort-Takt löst keine Neuberechnung mehr aus
