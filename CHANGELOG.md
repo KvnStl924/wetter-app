@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 2.0.3 – Radar-Bedienfeld passgenau
+- Bedienfeld unten wieder kompakter (passgenau für Zeitleiste, Farbskala und eine Zusatzzeile) – Knöpfe bleiben weiterhin an derselben Stelle
+- Bei Regen mit Blitzen steht die Blitz-Legende im Feld; die Zugrichtung zeigt dann nur der Pfeil auf der Karte
+
 ## 2.0.2 – Radar: Knöpfe bleiben stehen
 - Das Bedienfeld unten im Radar ist jetzt immer gleich hoch – die Knöpfe rechts springen beim Umschalten der Ebenen nicht mehr hoch und runter
 - Die Karte beim Antippen eines Punktes schiebt die Knöpfe nicht mehr nach oben

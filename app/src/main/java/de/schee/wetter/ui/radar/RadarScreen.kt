@@ -340,7 +340,7 @@ fun RadarScreen(
         }
 
         // Bedienfeld unten immer gleich hoch (Kevin am 10.11.2026: die Knöpfe sprangen je nach Ebene hoch und runter)
-        val panelH = 196.dp
+        val panelH = 166.dp
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
             // Rechts über dem Bedienfeld: Standort und die Ebenen (senkrecht übereinander), immer an derselben Stelle
             Column(Modifier.align(Alignment.BottomEnd).padding(bottom = panelH + 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -385,7 +385,8 @@ fun RadarScreen(
                     null -> if (!lightning) Text("Wähle rechts eine Ebene.", style = WType.bodyDim)
                 }
                 if (lightning) LightningInfo(ui, withRain = layer == RadarLayer.RAIN)
-                if (showRain) motion?.let { MotionLine(it) }
+                // Zugrichtung nur ohne Blitz-Legende (sonst zu eng; der Pfeil auf der Karte bleibt)
+                if (showRain && !lightning) motion?.let { MotionLine(it) }
                 if (warnings) Text("Amtliche DWD-Warnungen · gelb bis violett = leicht bis extrem",
                     style = WType.label.copy(color = WColors.Label))
             }
