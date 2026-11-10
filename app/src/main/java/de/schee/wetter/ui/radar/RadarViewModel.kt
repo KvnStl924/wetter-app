@@ -33,6 +33,8 @@ data class RadarUi(
     /** Regen-Vorhersage weltweit (DWD ICON): Menge der Stunde in mm, Schlüssel = Ende der Stunde. */
     val worldRain: Map<Instant, WorldGrid> = emptyMap(),
     val worldRainLoading: Boolean = false,
+    /** Wo das DWD-Radar misst (aus dem jüngsten Radarbild); null = unbekannt. */
+    val coverage: RadarData.Coverage? = null,
     /** Weltweites Radar (RainViewer), leer wenn nicht erreichbar. */
     val rainViewer: List<de.schee.wetter.data.RainViewer.Frame> = emptyList(),
     /** Temperatur und Wind weltweit (DWD ICON), je volle Stunde. */
@@ -99,10 +101,13 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
                 set { it.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.") }
                 return@launch
             }
+            // Messgebiet des DWD-Radars – vor den RainViewer-Kacheln, die damit für die Vorhersage geleert werden
+            val cov = runCatching { RadarData.coverageOf(nowBytes) }.getOrNull()
+            RadarData.coverage = cov
             val rv = runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
             val frames = RadarData.frames(latest)
             val nowIndex = frames.indexOfFirst { it.minutes == 0 }
-            set { it.copy(frames = frames, bytes = mapOf(nowIndex to nowBytes), nowIndex = nowIndex, error = null, rainViewer = rv) }
+            set { it.copy(frames = frames, bytes = mapOf(nowIndex to nowBytes), nowIndex = nowIndex, error = null, rainViewer = rv, coverage = cov) }
             // Reihenfolge: von „Jetzt“ aus abwechselnd vor und zurück, damit das Abspielen schnell beginnen kann.
             val order = frames.indices.filter { it != nowIndex }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
             val gate = Semaphore(4)

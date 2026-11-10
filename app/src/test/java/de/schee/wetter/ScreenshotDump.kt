@@ -143,6 +143,39 @@ class ScreenshotDump {
         save(activity.window.decorView, File(target, "settings.png").also { it.parentFile?.mkdirs() })
     }
 
+    /** 3.0.5: echte RainViewer-Kachel (Zoom 4, Mitteleuropa) – im Messgebiet des DWD-Radars geleert, außen unverändert. */
+    @Test fun tileMask() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        fun bytes(n: String) = javaClass.classLoader!!.getResource(n)!!.readBytes()
+        val cov = de.schee.wetter.data.RadarData.coverageOf(bytes("radar_cover.png"))!!
+        org.junit.Assert.assertTrue("Messgebiet ${cov.share}", cov.share in 0.6..0.9)
+        val tile = bytes("rv_tile_4_8_5.png")
+        val out = de.schee.wetter.data.TileMask.maskPng(tile, "/v2/radar/ef9682a9477a/512/4/8/5/2/1_1.png", cov)!!
+        fun px(b: ByteArray): IntArray { val bmp = android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size); return IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) } }
+        val before = px(tile); val after = px(out)
+        org.junit.Assert.assertEquals(before.size, after.size)
+        // geleert wird nur, nie etwas hinzugefügt; außerhalb des Ausschnitts bleibt jede Farbe gleich
+        val cleared = before.indices.count { before[it] ushr 24 != 0 && after[it] ushr 24 == 0 }
+        org.junit.Assert.assertTrue("geleert $cleared", cleared > 500)
+        org.junit.Assert.assertTrue(before.indices.none { before[it] ushr 24 == 0 && after[it] ushr 24 != 0 })
+        val m = de.schee.wetter.data.TileMask
+        for (y in 0 until 512 step 7) for (x in 0 until 512 step 7) {
+            val lat = m.latOf(4, 5 + (y + 0.5) / 512); val lon = m.lonOf(4, 8 + (x + 0.5) / 512)
+            if (!cov.at(lat, lon)) org.junit.Assert.assertEquals(before[y * 512 + x], after[y * 512 + x])
+        }
+        // unbekannte Adresse oder Kachel woanders: unverändert (null)
+        org.junit.Assert.assertNull(de.schee.wetter.data.TileMask.maskPng(tile, "/v2/radar/ef9682a9477a/512/4/2/5/2/1_1.png", cov))
+        org.junit.Assert.assertNull(de.schee.wetter.data.TileMask.maskPng(tile, "/irgendwas.png", cov))
+        fun dark(b: ByteArray, name: String) {
+            val src = android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size)
+            val bmp = android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(bmp).apply { drawColor(0xFF282B30.toInt()); drawBitmap(src, 0f, 0f, null) }
+            File(target, name).also { it.parentFile?.mkdirs() }.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        dark(tile, "kachel_vorher.png"); dark(out, "kachel_nachher.png")
+    }
+
     @Test fun radar() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar.png")
     @Test fun wind() = radarShot(de.schee.wetter.ui.radar.RadarLayer.WIND, "wind.png")
     @Test fun radarForecast() = radarShot(de.schee.wetter.ui.radar.RadarLayer.RAIN, "radar_forecast.png", forecast = true)

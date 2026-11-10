@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.5 – Regen-Vorhersage: scharfes Radarbild bleibt stehen
+- Direkt nach „Jetzt“ sprang die Karte außerhalb Deutschlands vom scharfen Radarbild auf das grobe Modellbild. Jetzt bleibt das Radarbild von „Jetzt“ in den ersten zwei Stunden stehen und geht weich ins Modell über (nach 5 Min. fast nur Radar, nach 1 Std. halb, nach 2 Std. nur Modell)
+- Im Messgebiet des DWD-Radars bleibt nichts stehen – dort läuft wie bisher die echte DWD-Vorhersage in 5-Minuten-Schritten
+- Lücke geschlossen: In den Ecken des Deutschland-Ausschnitts (außerhalb des DWD-Radars, z. B. Westpolen) fehlte der Regen in der Vorhersage ganz
+- Zeitleiste nennt die Quelle: „weltweit Radar von 20:45, dann Modell“
+
 ## 3.0.4 – Regen-Vorhersage weltweit vom DWD
 - Regen-Vorhersage außerhalb Deutschlands kommt jetzt aus dem weltweiten DWD-Modell (ICON, 0,5°-Raster, stündlich bis +12 Std.) statt aus 10 × 10 Punkten über dem Kartenausschnitt – echte Regengebiete statt riesiger verschwommener Farbflächen, und sie bleiben beim Verschieben an ihrem Ort
 - Zeitleiste: Ist Deutschland nicht im Bild, steht bei der Vorhersage „Modell“ statt „Radar-Vorhersage“; die Zeile darunter nennt die Quelle (weltweit Modell ICON) bzw. dass noch geladen wird

@@ -142,6 +142,50 @@ class RadarTest {
         assertEquals(Instant.parse("2026-11-10T20:00:00Z"), de.schee.wetter.ui.radar.rainHour(Instant.parse("2026-11-10T20:00:00Z")))
     }
 
+    /** 3.0.5: Radarbild bleibt in der Vorhersage stehen – nur außerhalb des DWD-Messgebiets – und geht ins Modell über. */
+    @Test fun holdRadar() {
+        // DWD-Bild 80 × 96: linke Hälfte gemessen (durchsichtig bzw. Regenfarbe), rechte Hälfte ohne Messung (grau, fast durchsichtig)
+        val w = 80; val h = 96
+        val dwd = IntArray(w * h) { i -> if (i % w < w / 2) (if (i % 7 == 0) 0xFF019934.toInt() else 0) else 0x4D7E7E7E }
+        val cov = RadarData.Coverage.of(dwd, w, h)
+        assertEquals(0.5, cov.share, 0.03)
+        val midLat = (RadarData.SOUTH + RadarData.NORTH) / 2
+        assertTrue(cov.at(midLat, RadarData.WEST + 1.0))
+        assertTrue(!cov.at(midLat, RadarData.EAST - 1.0))
+        assertTrue(!cov.at(midLat, RadarData.WEST - 1.0)) // außerhalb des Ausschnitts misst das DWD-Radar nie
+
+        // Kachel Zoom 4, Spalte 8, Zeile 5 reicht von 0° bis 22,5° Ost und etwa 41° bis 56° Nord: enthält den Ausschnitt
+        val mask = de.schee.wetter.data.TileMask
+        assertEquals(Triple(4, 8, 5), mask.tileOf("/v2/radar/1762803900/512/4/8/5/2/1_1.png"))
+        assertTrue(!mask.outside(4, 8, 5)); assertTrue(mask.outside(4, 2, 5))
+        val n = 64
+        val px = IntArray(n * n) { 0xFF2F6BFF.toInt() }
+        assertTrue(mask.maskPixels(px, n, 4, 8, 5, cov))
+        fun at(lat: Double, lon: Double): Int {
+            var best = 0; var bd = Double.MAX_VALUE
+            for (y in 0 until n) for (x in 0 until n) {
+                val d = kotlin.math.abs(mask.latOf(4, 5 + (y + 0.5) / n) - lat) + kotlin.math.abs(mask.lonOf(4, 8 + (x + 0.5) / n) - lon)
+                if (d < bd) { bd = d; best = px[y * n + x] }
+            }
+            return best
+        }
+        assertEquals(0, at(midLat, RadarData.WEST + 2.0))                      // DWD misst → geleert
+        assertEquals(0xFF2F6BFF.toInt(), at(midLat, RadarData.EAST - 2.0))     // im Ausschnitt, aber ohne DWD-Messung → bleibt
+        assertEquals(0xFF2F6BFF.toInt(), at(midLat, 2.0))                      // außerhalb des Ausschnitts → bleibt
+        // ohne bekanntes Messgebiet zählt der ganze Ausschnitt
+        val all = IntArray(n * n) { 0xFF2F6BFF.toInt() }
+        mask.maskPixels(all, n, 4, 8, 5, null)
+        assertTrue(all.count { it == 0 } > px.count { it == 0 })
+        // Kachel woanders bleibt unberührt
+        assertTrue(!mask.maskPixels(IntArray(n * n) { 0xFF2F6BFF.toInt() }, n, 4, 2, 5, cov))
+        assertEquals("https://x/512/{z}/{x}/{y}/2/1_1.png?dwdmask=1", mask.marked("https://x/512/{z}/{x}/{y}/2/1_1.png"))
+
+        // Übergang: direkt nach „Jetzt“ fast nur Radar, nach einer Stunde halb, nach zwei Stunden nur Modell
+        fun share(m: Int) = de.schee.wetter.ui.radar.modelShare(m)
+        assertTrue(share(5) < 0.01f); assertEquals(0.5f, share(60), 0.001f); assertEquals(1f, share(120), 0f); assertEquals(1f, share(600), 0f)
+        assertTrue((5..120 step 5).zipWithNext().all { (a, b) -> share(a) <= share(b) })
+    }
+
     /** 3.0.2: Orte hatten keine Schriftgröße → die Karte zeichnete ihre Namen mit Größe 0 (unsichtbar). */
     @Test fun jedeBeschriftungHatEineSchriftgroesse() {
         val labels = listOf(

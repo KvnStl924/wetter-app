@@ -9,7 +9,7 @@ plugins {
 // ---- Version: X.Y.Z (X = großes Update, Y = kleines Update, Z = Fehlerbehebung) ----
 val versionMajor = 3
 val versionMinor = 0
-val versionPatch = 4
+val versionPatch = 5
 
 // ---- Signierschlüssel: lokal aus keystore/keystore.properties, in GitHub Actions aus Secrets ----
 val keystoreProps = Properties().apply {
@@ -101,6 +101,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     // Karte im Vollbild-Radar (Version 12: passt zu Kotlin 2.0)
     implementation("org.maplibre.gl:android-sdk:12.3.1")
+    // Dieselbe Netz-Bibliothek, die die Karte ohnehin mitbringt – für das Leeren der Radar-Kacheln (data/TileMask.kt)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

@@ -310,6 +310,10 @@ fun RadarMap(
     fieldLandOnly: Boolean = false,
     /** Ländernamen der Karte zeigen (aus beim Max/Min-Schalter – dort stehen die eigenen Ländernamen). */
     countryNames: Boolean = true,
+    /** Weltweites Radarbild von „Jetzt“, das in der Vorhersage stehen bleibt (außerhalb des DWD-Radars), Deckkraft 0…1. */
+    holdFrame: RainViewer.Frame? = null, holdOpacity: Float = 0f,
+    /** Deckkraft des Regen-Modells 0…1 (blendet in den ersten zwei Stunden langsam ein). */
+    precipOpacity: Float = 1f,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
     /** Orte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen), mit dem Ausschnitt dazu. */
@@ -348,6 +352,7 @@ fun RadarMap(
 
     val view = remember {
         MapLibre.getInstance(context)
+        de.schee.wetter.data.TileMask.install()
         // In der Kachel als TextureView, damit die Karte beim Scrollen der Hauptseite sauber mitläuft.
         val opts = org.maplibre.android.maps.MapLibreMapOptions.createFromAttributes(context).textureMode(mini)
         MapView(context, opts).apply { onCreate(null) }
@@ -540,6 +545,30 @@ fun RadarMap(
                 PropertyFactory.visibility(if (active) Property.VISIBLE else Property.NONE),
                 PropertyFactory.rasterOpacity(if (i == rvIndex) 0.8f else 0f))
         }
+    }
+
+    // Stehendes Radarbild für die Vorhersage: eigene Kachel-Ebene (schon bei „Jetzt“ unsichtbar vorgeladen), deren
+    // Kacheln im Messgebiet des DWD-Radars geleert sind (TileMask) – dort gilt nur die DWD-Vorhersage.
+    LaunchedEffect(style, holdFrame) {
+        val s = style ?: return@LaunchedEffect
+        val key = holdFrame?.time?.epochSecond
+        s.layers.map { it.id }.filter { it.startsWith("rvh-layer-") && it != "rvh-layer-$key" }.forEach { s.removeLayer(it) }
+        s.sources.map { it.id }.filter { it.startsWith("rvh-") && it != "rvh-$key" }.forEach { s.removeSource(it) }
+        if (holdFrame == null || s.getSource("rvh-$key") != null) return@LaunchedEffect
+        val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", de.schee.wetter.data.TileMask.marked(holdFrame.tiles)).apply {
+            maxZoom = 7f; attribution = "<a href=\"https://www.rainviewer.com/\">Radar weltweit: RainViewer</a>"
+        }
+        s.addSource(org.maplibre.android.style.sources.RasterSource("rvh-$key", tiles, 512))
+        s.addLayerBelow(RasterLayer("rvh-layer-$key", "rvh-$key").withProperties(
+            PropertyFactory.rasterOpacity(0f), PropertyFactory.rasterFadeDuration(0f), PropertyFactory.rasterResampling("linear")), "radar-layer")
+    }
+    LaunchedEffect(style, holdFrame, holdOpacity) {
+        val s = style ?: return@LaunchedEffect
+        s.layers.filter { it.id.startsWith("rvh-layer-") }.forEach { it.setProperties(PropertyFactory.rasterOpacity(0.8f * holdOpacity)) }
+    }
+    LaunchedEffect(style, precipOpacity) {
+        val s = style ?: return@LaunchedEffect
+        listOf("precip-layer", "precip2-layer").forEach { s.getLayer(it)?.setProperties(PropertyFactory.rasterOpacity(0.9f * precipOpacity)) }
     }
 
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.

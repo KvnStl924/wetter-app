@@ -32,6 +32,42 @@ object RadarData {
 
     enum class Kind { RADAR, FORECAST, MODEL }
 
+    /** Wo das DWD-Radar misst (Radarverbund) – grobes Raster über dem Ausschnitt [WEST]…[EAST], [SOUTH]…[NORTH]. */
+    class Coverage(val w: Int, val h: Int, private val covered: BooleanArray) {
+        /** Anteil des Ausschnitts mit Messung. */
+        val share: Double get() = covered.count { it }.toDouble() / covered.size
+
+        fun at(lat: Double, lon: Double): Boolean {
+            if (lon < WEST || lon > EAST || lat < SOUTH || lat > NORTH) return false
+            val x = ((lon - WEST) / (EAST - WEST) * w).toInt().coerceIn(0, w - 1)
+            val y = ((mercY(NORTH) - mercY(lat)) / (mercY(NORTH) - mercY(SOUTH)) * h).toInt().coerceIn(0, h - 1)
+            return covered[y * w + x]
+        }
+
+        companion object {
+            /** Aus den Bildpunkten eines DWD-Radarbilds: grau und fast durchsichtig (126,126,126, Deckkraft 77) = keine Messung. */
+            fun of(px: IntArray, w: Int, h: Int, step: Int = 4): Coverage {
+                val cw = w / step; val ch = h / step
+                return Coverage(cw, ch, BooleanArray(cw * ch) { i -> !noData(px[(i / cw * step + step / 2) * w + (i % cw) * step + step / 2]) })
+            }
+
+            private fun noData(p: Int): Boolean {
+                val a = p ushr 24; val r = (p shr 16) and 255; val g = (p shr 8) and 255; val b = p and 255
+                return a in 40..120 && kotlin.math.abs(r - 126) < 12 && kotlin.math.abs(g - 126) < 12 && kotlin.math.abs(b - 126) < 12
+            }
+        }
+    }
+
+    /** Messgebiet des jüngsten Radarbilds (für [TileMask]; null = unbekannt → der ganze Ausschnitt zählt als Messgebiet). */
+    @Volatile var coverage: Coverage? = null
+
+    /** Messgebiet aus einem DWD-Radarbild (PNG); null, wenn das Bild nicht passt (z. B. gar kein Rand erkennbar). */
+    fun coverageOf(bytes: ByteArray): Coverage? {
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val px = IntArray(bmp.width * bmp.height); bmp.getPixels(px, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        return Coverage.of(px, bmp.width, bmp.height).takeIf { it.share in 0.2..0.98 }
+    }
+
     /** Ein Bild der Zeitleiste. [minutes] relativ zu „Jetzt“ (letzte Radarmessung). */
     data class Frame(val time: Instant, val minutes: Int, val kind: Kind)
 
