@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 2.0.1 – Blitze laden schneller
+- Blitze erscheinen sofort Stück für Stück (neueste zuerst), statt erst nach allen 13 Satellitenbildern – der EUMETSAT-Server braucht je Bild 7–12 Sekunden
+- Fertige Blitz-Abschnitte werden auf dem Handy gemerkt und beim nächsten Öffnen nicht neu geladen; 6 statt 4 Bilder gleichzeitig
+- Anzeige „Blitze werden geladen … 5/13“
+- Fehler behoben: die neuesten Abschnitte, die beim ersten Laden noch leer waren, wurden nie nachgeladen – dadurch fehlten die jüngsten Blitze
+
 ## 2.0.0 – Bestes Zeitfenster, Gewitter-Abstand, rundum überarbeitet
 - Neue Kachel „Bestes Zeitfenster“: für Spazieren, Fahrrad, Wäsche oder Grillen das beste trockene Fenster heute und morgen („Jetzt bis 16 Uhr · danach Regen“), mit 24-Stunden-Leiste
 - Gewitter-Abstand: unter der Temperatur „Gewitter 12 km im Südwesten · kommt näher“ (Satelliten-Blitze in voller Auflösung, ca. 1 km genau); Antippen öffnet das Radar mit Blitzen; kommt es näher, grollt das Handy kurz wie Donner

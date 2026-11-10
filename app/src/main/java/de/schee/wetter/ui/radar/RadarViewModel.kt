@@ -47,6 +47,8 @@ data class RadarUi(
     /** Blitze der letzten Stunde (Satellit), neueste zuletzt. */
     val strikes: List<Satellite.Strike> = emptyList(),
     val strikesNewest: Instant? = null,
+    /** Laden der Blitze: (fertig, gesamt), null = fertig. */
+    val strikesProgress: Pair<Int, Int>? = null,
 ) {
     val loaded get() = bytes.size
     /** Stunden der Zeitleiste für Temperatur/Wind: jetzt … +12 h. */
@@ -200,7 +202,15 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- Blitze
 
-    /** Blitze der letzten Stunde (12 Abschnitte à 5 Minuten); beim erneuten Aufruf nur die neuen Abschnitte. */
+    /**
+     * Blitze der letzten Stunde (13 Abschnitte à 5 Minuten). Der EUMETSAT-Server braucht je Bild 7–12 s (am
+     * 10.11.2026 gemessen) – deshalb (Kevin: „die Blitze laden sehr langsam“):
+     *  - jedes Bild wird sofort gezeigt, sobald es da ist (neueste zuerst), statt auf alle 13 zu warten
+     *  - fertige Abschnitte liegen auf dem Handy und werden beim nächsten Öffnen nicht neu geladen
+     *  - 6 Bilder gleichzeitig
+     *  - leere Abschnitte ganz vorn (Daten noch nicht angekommen) werden beim nächsten Mal erneut versucht
+     *    (bis 2.0.0 blieben sie fälschlich als „leer“ gemerkt → die neuesten Blitze fehlten)
+     */
     fun loadLightning() {
         if (lightningJob?.isActive == true) return
         if (System.currentTimeMillis() - strikesAt < 4 * 60_000) return
@@ -208,20 +218,42 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             val started = System.currentTimeMillis()
             val newest = Satellite.lightningTime(Instant.now())
             val times = (0 until 13).map { newest.minusSeconds(it * 300L) }
-            val have = strikeFrames.toMap()
-            val gate = Semaphore(4)
-            val got = times.filter { it !in have.keys }.map { t ->
-                async { gate.withPermit { t to runCatching { Satellite.strikes(t) }.getOrNull() } }
+            val dir = java.io.File(getApplication<Application>().cacheDir, "lightning").apply { mkdirs() }
+            synchronized(strikeFrames) {
+                // Gespeichertes vom Handy dazunehmen, Altes wegräumen
+                for (t in times) if (t !in strikeFrames) StrikeCache.read(dir, t)?.let { strikeFrames[t] = it }
+                strikeFrames.keys.removeAll { it.isBefore(newest.minusSeconds(3600)) }
+                // vorderste Abschnitte ohne Blitze: vielleicht nur noch nicht angekommen → neu laden
+                times.take(3).forEach { t -> if (strikeFrames[t]?.isEmpty() == true) strikeFrames.remove(t) }
+            }
+            StrikeCache.prune(dir, newest.minusSeconds(3700))
+            fun publish(done: Int, total: Int) {
+                val all = synchronized(strikeFrames) { strikeFrames.toMap() }
+                val list = Satellite.firstSeen(all)
+                val latestWithData = all.filterValues { it.isNotEmpty() }.keys.maxOrNull()
+                set { it.copy(strikes = list, strikesNewest = latestWithData, strikesProgress = if (done < total) done to total else null) }
+            }
+            val todo = times.filter { synchronized(strikeFrames) { it !in strikeFrames } }
+            publish(0, todo.size)
+            val gate = Semaphore(6)
+            var done = 0
+            todo.map { t ->
+                async {
+                    gate.withPermit {
+                        val r = runCatching { Satellite.strikes(t) }.getOrNull()
+                        if (r != null) {
+                            synchronized(strikeFrames) { strikeFrames[t] = r }
+                            // nur fertige Abschnitte speichern (die vordersten können noch unvollständig sein)
+                            if (t.isBefore(newest.minusSeconds(600)) || r.isNotEmpty()) StrikeCache.write(dir, t, r)
+                        }
+                        synchronized(this@RadarViewModel) { done++ }
+                        publish(done, todo.size)
+                    }
+                }
             }.awaitAll()
-            // leere Abschnitte ganz vorn sind noch nicht angekommen → nächstes Mal erneut versuchen
-            val fresh = got.filter { it.second != null }.associate { it.first to it.second!! }
-            val all = (have + fresh).filterKeys { !it.isBefore(newest.minusSeconds(3600)) }
-            strikeFrames.clear(); strikeFrames.putAll(all)
-            val list = Satellite.firstSeen(all)
-            val latestWithData = all.filterValues { it.isNotEmpty() }.keys.maxOrNull()
             strikesAt = System.currentTimeMillis()
-            set { it.copy(strikes = list, strikesNewest = latestWithData) }
-            AppLog.data("Blitze: ${list.size} Punkte aus ${all.size} Abschnitten (${System.currentTimeMillis() - started} ms)")
+            publish(1, 1)
+            AppLog.data("Blitze: ${_ui.value.strikes.size} Punkte, ${todo.size} Abschnitte geladen, ${times.size - todo.size} schon da (${System.currentTimeMillis() - started} ms)")
         }
     }
 
@@ -269,4 +301,23 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Für die Testbilder am PC. */
     fun preview(ui: RadarUi) { _ui.value = ui }
+}
+
+/** Blitz-Abschnitte auf dem Handy (fertige Abschnitte ändern sich nicht mehr). Eine Zeile je Blitz: lat;lon;stärke. */
+internal object StrikeCache {
+    private fun file(dir: java.io.File, t: Instant) = java.io.File(dir, "${t.epochSecond}.txt")
+
+    fun read(dir: java.io.File, t: Instant): List<Satellite.Strike>? = runCatching {
+        val f = file(dir, t)
+        if (!f.exists()) return null
+        f.readLines().filter { it.isNotBlank() }.map { l -> val p = l.split(";"); Satellite.Strike(p[0].toDouble(), p[1].toDouble(), t, p[2].toFloat()) }
+    }.getOrNull()
+
+    fun write(dir: java.io.File, t: Instant, list: List<Satellite.Strike>) {
+        runCatching { file(dir, t).writeText(list.joinToString("\n") { "${it.lat};${it.lon};${it.strength}" }) }
+    }
+
+    fun prune(dir: java.io.File, before: Instant) {
+        dir.listFiles()?.forEach { f -> f.nameWithoutExtension.toLongOrNull()?.let { if (it < before.epochSecond) f.delete() } }
+    }
 }

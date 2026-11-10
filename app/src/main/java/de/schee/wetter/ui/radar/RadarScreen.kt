@@ -1032,7 +1032,8 @@ private fun CloudInfo(ui: RadarUi) {
 
 @Composable
 private fun LightningInfo(ui: RadarUi, withRain: Boolean) {
-    if (!withRain) Text(if (ui.strikesNewest != null) "Blitze der letzten Stunde · Stand ${hhmm.format(ui.strikesNewest)}" else "Blitze werden geladen …", style = WType.small)
+    if (!withRain) Text(ui.strikesProgress?.let { (d, n) -> "Blitze werden geladen … $d/$n" + (ui.strikesNewest?.let { " · Stand ${hhmm.format(it)}" } ?: "") }
+        ?: if (ui.strikesNewest != null) "Blitze der letzten Stunde · Stand ${hhmm.format(ui.strikesNewest)}" else "Gerade keine Blitze in Europa und Afrika", style = WType.small)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         @Composable fun dot(c: Color, ring: Color?, text: String) {
             Canvas(Modifier.size(10.dp)) { drawCircle(c, size.minDimension / 2); ring?.let { drawCircle(it, size.minDimension / 2, style = Stroke(1.5f)) } }

@@ -244,7 +244,7 @@ object Satellite {
 
     /** Blitze eines 5-Minuten-Abschnitts als Punkte. Leere Bilder (noch keine Daten) ergeben eine leere Liste. */
     fun strikes(time: Instant, label: String = "EUMETSAT Blitze"): List<Strike> {
-        val bytes = Http.get(label, lightningUrl(time), timeoutMs = 25_000, log = false)
+        val bytes = Http.get(label, lightningUrl(time), timeoutMs = 45_000, log = false)
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return emptyList()
         val w = bmp.width; val h = bmp.height
         val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
