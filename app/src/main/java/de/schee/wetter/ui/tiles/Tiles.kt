@@ -171,7 +171,9 @@ fun Rain2hContent(d: TileData) {
         text = RainSoon.summary(slots)
     }
     Text(text, style = WType.body)
-    RainCurve(pts, Modifier.fillMaxWidth().height(78.dp))
+    // Kurve immer bis „2 Std.“ ziehen (die Modell-Werte enden schon nach 105 Minuten)
+    val full = if (pts.isNotEmpty() && pts.last().first < 120f) pts + (120f to pts.last().second) else pts
+    RainCurve(full, Modifier.fillMaxWidth().height(78.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         listOf("Jetzt", "30 Min.", "60 Min.", "90 Min.", "2 Std.").forEach { Text(it, style = WType.label.copy(color = WColors.Label)) }
     }

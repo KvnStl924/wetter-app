@@ -82,12 +82,23 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         if (index == _selected.value) return
         _selected.value = index
         ids().getOrNull(index)?.let { id -> AppLog.i(AppLog.Cat.ORT, "Seite: ${uiFor(id).place?.name ?: if (id == GPS) "Mein Standort" else id}"); loadIfStale(id) }
+        preloadNeighbours(index)
+    }
+
+    /**
+     * Nachbarseiten gleich mitladen (erst der gespeicherte Stand, dann frisch): Beim Wischen ist der nächste Ort
+     * sofort mit Wetter da, statt erst einen Ladekreis zu zeigen.
+     */
+    private fun preloadNeighbours(index: Int) {
+        val all = ids()
+        listOf(index - 1, index + 1).mapNotNull { all.getOrNull(it) }.forEach { loadIfStale(it) }
     }
 
     /** Beim Sichtbarwerden: aktuelle Seite neu laden, wenn älter als 10 Minuten. */
     fun onVisible() {
         _gpsAllowed.value = LocationSource.hasPermission(getApplication())
         ids().getOrNull(_selected.value)?.let { loadIfStale(it) }
+        preloadNeighbours(_selected.value)
     }
 
     private fun loadIfStale(id: String) {

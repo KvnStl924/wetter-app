@@ -56,7 +56,7 @@ enum class Mode(val title: String, val subtitle: String) {
 
 @Composable
 fun HourlyCard(f: Forecast, now: LocalDateTime, mode: Mode, units: Units, onMode: (Mode) -> Unit) {
-    val items = Timeline.hourlyItems(f.hours, f.days, now)
+    val items = androidx.compose.runtime.remember(f, now) { Timeline.hourlyItems(f.hours, f.days, now) }
     Tile(null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -93,6 +93,9 @@ fun HourlyCard(f: Forecast, now: LocalDateTime, mode: Mode, units: Units, onMode
                         is HourItem.H -> {
                             val h = item.hour
                             Text(if (item.isNow) "Jetzt" else "%02d Uhr".format(h.time.hour), style = WType.small, maxLines = 1)
+                            // Umschalten Temperatur/Regen/Wind: weich überblenden statt hart umspringen
+                            androidx.compose.animation.Crossfade(mode, animationSpec = androidx.compose.animation.core.tween(260), label = "hourMode") { mode ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (mode) {
                                 Mode.TEMP -> {
                                     WeatherIcon(WeatherCodes.icon(h.code, h.isDay))
@@ -110,6 +113,8 @@ fun HourlyCard(f: Forecast, now: LocalDateTime, mode: Mode, units: Units, onMode
                                     WindArrow(h.windDir ?: 0, Modifier.size(22.dp))
                                     Text("${units.wNum(h.wind)}", style = WType.small)
                                 }
+                            }
+                            }
                             }
                         }
                     }
@@ -129,7 +134,7 @@ fun ModeSwitch(mode: Mode, onMode: (Mode) -> Unit) {
             Box(
                 Modifier.pressable(scale = .9f, haptic = de.schee.wetter.ui.Haptics.Kind.SNAP) { if (m != mode) { AppLog.tap("Wetterlage → Umschalter „${m.title}“"); onMode(m) } }
                     .size(38.dp, 28.dp).clip(RoundedCornerShape(50))
-                    .background(if (m == mode) Color.White.copy(alpha = .22f) else Color.Transparent),
+                    .background(androidx.compose.animation.animateColorAsState(if (m == mode) Color.White.copy(alpha = .22f) else Color.Transparent, label = "mode").value),
                 contentAlignment = Alignment.Center,
             ) {
                 when (m) {
@@ -180,7 +185,7 @@ fun DailyCard(f: Forecast, today: LocalDate, mode: Mode, units: Units, onDay: (D
         days.forEachIndexed { i, d ->
             if (i > 0) HorizontalDivider(color = WColors.CardBorder)
             Row(
-                Modifier.pressable(scale = 1f, dim = .55f) { AppLog.tap("10-Tage-Liste → ${Timeline.dayLong(d.date, today)} geöffnet"); onDay(d) }.fillMaxWidth().padding(vertical = 6.dp),
+                Modifier.pressable(scale = 1f, dim = .55f) { AppLog.tap("10-Tage-Liste → ${Timeline.dayLong(d.date, today)} geöffnet"); onDay(d) }.fillMaxWidth().height(54.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.width(58.dp)) {
@@ -193,6 +198,8 @@ fun DailyCard(f: Forecast, today: LocalDate, mode: Mode, units: Units, onDay: (D
                     if (p >= 20 && mode != Mode.RAIN) Text("$p %", style = WType.label.copy(color = WColors.Rain))
                 }
                 Spacer(Modifier.width(8.dp))
+                androidx.compose.animation.Crossfade(mode, Modifier.weight(1f), animationSpec = androidx.compose.animation.core.tween(260), label = "dayMode") { mode ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 when (mode) {
                     Mode.TEMP -> {
                         Text(units.t(d.tMin), style = WType.body.copy(color = WColors.Label), modifier = Modifier.width(40.dp), textAlign = TextAlign.End)
@@ -208,6 +215,8 @@ fun DailyCard(f: Forecast, today: LocalDate, mode: Mode, units: Units, onDay: (D
                         RainBar((d.windMax / max(1.0, maxWind)), Modifier.weight(1f).padding(end = 10.dp), color = Color(0xFF4FD1C5))
                         Text("${units.wNum(d.windMax)}–${units.wNum(d.gustMax ?: d.windMax)} ${units.windLabel}", style = WType.body, modifier = Modifier.width(118.dp), textAlign = TextAlign.End)
                     }
+                }
+                }
                 }
             }
         }
