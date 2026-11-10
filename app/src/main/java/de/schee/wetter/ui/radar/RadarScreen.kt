@@ -315,7 +315,7 @@ fun RadarScreen(
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
                 precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null,
-                cloudDetail = if (layer == RadarLayer.CLOUDS) ui.cloudDetail else null, fieldLandOnly = fieldKind == RadarLayer.TEMP,
+                cloudDetail = if (layer == RadarLayer.CLOUDS) ui.cloudDetail else null, fieldLandOnly = fieldKind == RadarLayer.TEMP, countryNames = !countries,
                 center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
                 onCities = { c, t -> cities = c; idle = t },
                 labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest,
@@ -370,12 +370,12 @@ fun RadarScreen(
                     onClose = { AppLog.tap("Vollbild-Radar → Punkt-Karte geschlossen"); picked = null })
             }
             androidx.compose.animation.AnimatedVisibility(toast != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
-                Text(toast ?: "", style = WType.small, modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE61C2233)).padding(horizontal = 14.dp, vertical = 9.dp))
+                Text(toast ?: "", style = WType.small, modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF1C2233)).padding(horizontal = 14.dp, vertical = 9.dp))
             }
             }
             LaunchedEffect(toast) { if (toast != null) { delay(2200); toast = null } }
             Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelH).clip(RoundedCornerShape(20.dp)).background(Color(0xE6141927))
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelH).clip(RoundedCornerShape(20.dp)).background(Color(0xFF141927))
                     .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -419,7 +419,7 @@ private fun savePlace(p: Picked, vm: de.schee.wetter.ui.WeatherViewModel?, hapti
 @Composable
 private fun PickCard(p: Picked, units: de.schee.wetter.data.Units, onSave: () -> Unit, onClose: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xF0141927)).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF141927)).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -530,7 +530,7 @@ private fun MyLocationDot(fix: LocationSource.Fix, t: MapTransform) {
 
 /** Temperaturfarben der Karte: ruhig, nicht zu bunt; kalt violett/blau, mild grün, heiß orange/rot. */
 private val TEMP_STOPS = listOf(
-    -30.0 to 0xFF6A5AA8, -15.0 to 0xFF4A6CC0, 0.0 to 0xFF4C9CC4, 8.0 to 0xFF4FA88C,
+    -50.0 to 0xFFC9B8E8, -40.0 to 0xFF9A82CC, -30.0 to 0xFF6A5AA8, -15.0 to 0xFF4A6CC0, 0.0 to 0xFF4C9CC4, 8.0 to 0xFF4FA88C,
     15.0 to 0xFF9AB35A, 22.0 to 0xFFD2A546, 30.0 to 0xFFD9743C, 40.0 to 0xFFB8404A,
 )
 private val WIND_STOPS = listOf(
@@ -881,14 +881,28 @@ internal fun pickLabels(
                 val l = inView.getOrPut(k) { mutableListOf() }; if (l.size < 40) l += i
             }
             val cx = idle.w / 2; val cy = idle.h * .45f
-            val cand = (inView.keys + c.anchor.indices.filter { k -> c.anchor[k] >= 0 && idle.visible(idle.x(idx.lon[c.anchor[k]].toDouble()), idle.y(idx.lat[c.anchor[k]].toDouble())) }).toSet()
+            fun anchorVisible(k: Int) = !c.anchorLat[k].isNaN() && idle.visible(idle.x(c.anchorLon[k]), idle.y(c.anchorLat[k]))
+            // sichtbare Stellen der Landesfläche (Stichprobe, höchstens ~400 Zellen je Land)
+            val cellSpots = HashMap<Int, MutableList<Pair<Double, Double>>>()
+            for (k in 0 until c.size) {
+                val cs = c.cells[k]; if (cs.isEmpty()) continue
+                val step = maxOf(1, cs.size / 400)
+                var j = 0
+                while (j < cs.size) {
+                    val la = c.cellLat(cs[j]); val lo = c.cellLon(cs[j])
+                    if (idle.visible(idle.x(lo), idle.y(la))) cellSpots.getOrPut(k) { mutableListOf() } += la to lo
+                    j += step
+                }
+            }
+            val cand = (inView.keys + cellSpots.keys + (0 until c.size).filter { anchorVisible(it) }).toSet()
+            fun dist(p: Pair<Double, Double>) = hypot(idle.x(p.second) - cx, idle.y(p.first) - cy)
             for (k in cand.sortedByDescending { c.pop[it] }) {
                 val name = c.name(k)
-                // erst die Landesmitte, dann sichtbare Orte des Landes – die zur Bildmitte hin zuerst
-                val alt = inView[k].orEmpty().sortedBy { i -> hypot(idle.x(idx.lon[i].toDouble()) - cx, idle.y(idx.lat[i].toDouble()) - cy) }.take(12)
-                for (i in (listOfNotNull(c.anchor[k].takeIf { it >= 0 }) + alt).distinct()) {
-                    if (add(LabelPick(idx.lat[i].toDouble(), idx.lon[i].toDouble(), name, 4, k))) break
-                }
+                // erst die Landesmitte, dann sichtbare Stellen des Landes (Orte und Fläche) – die zur Bildmitte hin zuerst
+                val alt = (inView[k].orEmpty().map { idx.lat[it].toDouble() to idx.lon[it].toDouble() } + cellSpots[k].orEmpty())
+                    .sortedBy { dist(it) }.take(16)
+                val spots = (if (c.anchorLat[k].isNaN()) emptyList() else listOf(c.anchorLat[k] to c.anchorLon[k])) + alt
+                for ((la, lo) in spots) if (add(LabelPick(la, lo, name, 4, k))) break
                 if (out.size > 60) break
             }
             return out
@@ -1163,7 +1177,7 @@ private fun Legend(items: List<Pair<String, Color>>) {
 @Composable
 private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Composable () -> Unit) {
     Box(
-        Modifier.pressable(scale = .88f, onClick = onClick).size(44.dp).clip(CircleShape).background(if (dark) Color(0xE61C2233) else Color.White.copy(alpha = .14f)),
+        Modifier.pressable(scale = .88f, onClick = onClick).size(44.dp).clip(CircleShape).background(if (dark) Color(0xFF1C2233) else Color.White.copy(alpha = .14f)),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
@@ -1173,7 +1187,7 @@ private fun RoundButton(onClick: () -> Unit, dark: Boolean = true, content: @Com
 private fun ToggleButton(on: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         Modifier.pressable(scale = .88f, haptic = null, onClick = onClick).size(46.dp).clip(CircleShape)
-            .background(animateColorAsState(if (on) WColors.Accent.copy(alpha = .9f) else Color(0xE61C2233), label = "toggle").value),
+            .background(animateColorAsState(if (on) WColors.Accent else Color(0xFF1C2233), label = "toggle").value),
         contentAlignment = Alignment.Center,
     ) { content() }
 }

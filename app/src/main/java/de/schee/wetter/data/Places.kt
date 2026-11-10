@@ -28,7 +28,10 @@ object Places {
         _index.value?.let { return it }
         val bytes = context.assets.open("places.bin").use { it.readBytes() }
         return parse(bytes).also { idx ->
-            idx.countries = runCatching { Countries.parse(context.assets.open("places-cc.bin").use { it.readBytes() }, idx) }.getOrNull()
+            idx.countries = runCatching {
+                val mask = runCatching { context.assets.open("country-mask.bin").use { it.readBytes() } }.getOrNull()
+                Countries.parse(context.assets.open("places-cc.bin").use { it.readBytes() }, mask, idx)
+            }.getOrNull()
             _index.value = idx
         }
     }

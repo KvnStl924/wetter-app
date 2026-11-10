@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.1 – Max/Min: ganze Landesfläche, Karte aufgeräumt
+- Max/Min zählt jetzt die ganze Landesfläche (Natural Earth, 0,2°-Gitter) statt nur der Orte – Grönland z. B. −35° statt −7°; Überseegebiete zählen nicht zum Mutterland
+- Bei Max/Min keine doppelten Ländernamen der Karte mehr; Länder finden auch am Bildrand einen freien Platz; kürzere Namen (Großbritannien, USA …)
+- Bedienfeld, Knöpfe und Punkt-Karte undurchsichtig – keine Ortsnamen mehr, die durchscheinen
+- Eisflächen (Grönland, Antarktis) liegen bei Temperatur/Wind nicht mehr grau über den Farben; eigene Farben unter −30°
+
 ## 3.0.0 – Max/Min je Land auf der Temperaturkarte
 - Neuer Schalter „Max/Min“ unten im Bedienfeld der Temperaturkarte: statt Werten an jeder Stadt steht an jedem Land der höchste und der tiefste Wert gerade (zur gewählten Stunde)
 - Landesnamen auf Deutsch, Beschriftung mittig im Land; Schalter bleibt gemerkt

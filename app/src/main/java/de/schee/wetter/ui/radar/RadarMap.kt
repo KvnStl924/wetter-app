@@ -296,6 +296,8 @@ fun RadarMap(
     cloudDetail: Satellite.CloudDetail? = null,
     /** Farbfläche nur über Land (Meer bleibt frei, z. B. Temperatur) – sonst auch über dem Meer (Wind). */
     fieldLandOnly: Boolean = false,
+    /** Ländernamen der Karte zeigen (aus beim Max/Min-Schalter – dort stehen die eigenen Ländernamen). */
+    countryNames: Boolean = true,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
     center: Pair<Double, Double>? = null, centerTick: Int = 0,
     /** Orte, die die Karte gerade beschriftet (nach jedem Verschieben/Zoomen), mit dem Ausschnitt dazu. */
@@ -537,6 +539,13 @@ fun RadarMap(
         listOf("field-land", "field2-land").forEach { s.getLayer(it)?.setProperties(vis(fieldLandOnly)) }
         listOf("field-layer", "field2-layer").forEach { s.getLayer(it)?.setProperties(vis(!fieldLandOnly)) }
         s.getLayer("water-veil")?.setProperties(vis(field != null && !fieldLandOnly))
+        // Eisflächen (Grönland, Antarktis) lagen grau über den Farben – bei Temperatur/Wind aus (3.0.1)
+        listOf("landcover_ice_shelf", "landcover_glacier").forEach { s.getLayer(it)?.setProperties(vis(field == null)) }
+    }
+    LaunchedEffect(style, countryNames) {
+        val s = style ?: return@LaunchedEffect
+        val v = PropertyFactory.visibility(if (countryNames) Property.VISIBLE else Property.NONE)
+        s.layers.filter { it.id.startsWith("place_country") }.forEach { it.setProperties(v) }
     }
     LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
     LaunchedEffect(style, cloudDetail) {
