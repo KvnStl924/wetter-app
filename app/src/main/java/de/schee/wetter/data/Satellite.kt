@@ -74,13 +74,17 @@ object Satellite {
      *    erst bei hellerem Grau – mit Hilfe der Bodentemperatur aus dem Modell
      *  - dunkel = durchsichtig, hellgrau = zarte Wolke, weiß = dicke, hohe Wolke; zum Schluss weichgezeichnet
      */
-    fun cloudPixels(world: IntArray?, mtg: IntArray?, w: Int, h: Int, temp: WorldWeather?): IntArray {
+    fun cloudPixels(
+        world: IntArray?, mtg: IntArray?, w: Int, h: Int, temp: WorldWeather?,
+        latOf: (Double) -> Double = { latOfRow(it, h) }, lonOf: (Double) -> Double = { lonOfCol(it, w) },
+        maskBlur: Int = 14,
+    ): IntArray {
         val n = w * h
         // Gewicht von MTG: 1 innen, weich zum Rand der Scheibe (schwarz = keine Daten)
         val mw = FloatArray(n)
         if (mtg != null) {
             for (i in 0 until n) mw[i] = if (mtg[i] > 6) 1f else 0f
-            blur(mw, w, h, 14); blur(mw, w, h, 14)
+            blur(mw, w, h, maskBlur); blur(mw, w, h, maskBlur)
             // schwarze Ränder selbst nie verwenden
             for (i in 0 until n) if (mtg[i] <= 6) mw[i] = 0f else mw[i] = ((mw[i] - 0.5f) * 2f).coerceIn(0f, 1f)
         }
@@ -98,12 +102,12 @@ object Satellite {
         val alpha = FloatArray(n)
         val step = 4
         for (y in 0 until h) {
-            val lat = latOfRow(y + 0.5, h)
+            val lat = latOf(y + 0.5)
             var low = LOW.toFloat()
             for (x in 0 until w) {
                 val i = y * w + x
                 if (temp != null && x % step == 0) {
-                    val t = temp.tempAt(lat, lonOfCol(x + 0.5, w))
+                    val t = temp.tempAt(lat, lonOf(x + 0.5))
                     // je kälter der Boden, desto heller muss es sein, damit es als Wolke zählt
                     low = if (t.isNaN()) LOW.toFloat() else (LOW + ((4.0 - t) * 2.6).coerceIn(0.0, 75.0)).toFloat()
                 }
@@ -122,6 +126,37 @@ object Satellite {
             out[i] = (a shl 24) or (c shl 16) or (c shl 8) or minOf(255, c + 5)
         }
         return out
+    }
+
+    /** Scharfes Wolkenbild eines Ausschnitts (beim Hineinzoomen), Mercator-Rechteck. */
+    class CloudDetail(val west: Double, val east: Double, val south: Double, val north: Double, val bitmap: Bitmap, val loadedAt: Long) {
+        /** Deckt das Bild den Ausschnitt ganz ab? */
+        fun covers(w: Double, e: Double, s: Double, n: Double) = w >= west && e <= east && s >= south && n <= north
+    }
+
+    /** Hier ist das MTG-Bild verlässlich (weit genug innerhalb der Satellitenscheibe). */
+    fun detailCovers(w: Double, e: Double, s: Double, n: Double) = w >= -50 && e <= 50 && s >= -62 && n <= 68
+
+    /**
+     * Wolken eines Ausschnitts in voller Auflösung des Satelliten (≈ 1–2 km statt ≈ 20 km im Weltbild) –
+     * Kevin am 10.11.2026: „die Wolken sehen noch billig aus, die müssen richtig scharf sein“.
+     */
+    fun loadCloudDetail(west: Double, east: Double, south: Double, north: Double, temp: WorldWeather?, maxPx: Int = 1400): CloudDetail {
+        val mx0 = mercX(west); val mx1 = mercX(east); val my0 = mercY(south); val my1 = mercY(north)
+        val aspect = (my1 - my0) / (mx1 - mx0)
+        val w = if (aspect <= 1) maxPx else (maxPx / aspect).toInt().coerceAtLeast(64)
+        val h = if (aspect <= 1) (maxPx * aspect).toInt().coerceAtLeast(64) else maxPx
+        val url = "$WMS&layers=mtg_fd:ir105_hrfi&format=image/jpeg&bgcolor=0x000000&width=$w&height=$h&bbox=" +
+            "%.0f,%.0f,%.0f,%.0f".format(Locale.US, mx0, my0, mx1, my1)
+        val bytes = Http.get("EUMETSAT Wolken Ausschnitt", url, timeoutMs = 25_000)
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("Wolkenbild leer")
+        val s = if (bmp.width == w && bmp.height == h) bmp else Bitmap.createScaledBitmap(bmp, w, h, true)
+        val px = IntArray(w * h); s.getPixels(px, 0, w, 0, 0, w, h)
+        val gray = IntArray(px.size) { (px[it] shr 8) and 0xFF }
+        val latOf = { y: Double -> val my = (my1 - y / h * (my1 - my0)) * 180.0 / 20037508.34; 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0 }
+        val lonOf = { x: Double -> west + x / w * (east - west) }
+        val out = cloudPixels(null, gray, w, h, temp, latOf, lonOf, maskBlur = 6)
+        return CloudDetail(west, east, south, north, Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888), System.currentTimeMillis())
     }
 
     /** Grauwert, ab dem Wolken beginnen bzw. ganz deckend sind (bei normal warmem Boden). */

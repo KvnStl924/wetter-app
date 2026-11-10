@@ -27,7 +27,7 @@ object MapImages {
         coroutineScope {
             val b = async { runCatching { decode(Http.get("DWD-Grundkarte", base + "&layers=dwd:Warngebiete_Kreise"))?.let(::bordersOnly) }.getOrNull() }
             // Gleiche Farben wie im Vollbild-Radar (Leicht · Mäßig · Stark · Extrem).
-            val r = async { runCatching { decode(Http.get("DWD-Radarbild", base + "&layers=dwd:Niederschlagsradar"))?.let { RadarData.recolor(it, RadarData.RADAR_SCALE) } }.getOrNull() }
+            val r = async { runCatching { decode(Http.get("DWD-Radarbild", base + "&layers=dwd:Niederschlagsradar"))?.let { RadarData.crisp(it, RadarData.RADAR_SCALE) } }.getOrNull() }
             Layers(b.await(), r.await(), System.currentTimeMillis()).also { cache = key to it }
         }
     }

@@ -41,6 +41,8 @@ data class RadarUi(
     /** Wolken weltweit (Satellit). */
     val clouds: Satellite.Clouds? = null,
     val cloudsError: String? = null,
+    /** Scharfer Wolken-Ausschnitt beim Hineinzoomen (null = nur Weltbild). */
+    val cloudDetail: Satellite.CloudDetail? = null,
     /** Blitze der letzten Stunde (Satellit), neueste zuletzt. */
     val strikes: List<Satellite.Strike> = emptyList(),
     val strikesNewest: Instant? = null,
@@ -171,6 +173,30 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var detailJob: Job? = null
+
+    /**
+     * Scharfe Wolken für den Ausschnitt: erst ab etwas Zoom und nur im Bereich des MTG-Satelliten. Geladen wird
+     * das Doppelte des Ausschnitts, damit beim Verschieben nicht sofort wieder geladen werden muss.
+     */
+    fun ensureCloudDetail(west: Double, east: Double, south: Double, north: Double) {
+        val spanX = east - west; val spanY = north - south
+        if (spanX > 40) return
+        val cur = _ui.value.cloudDetail
+        val fresh = cur != null && System.currentTimeMillis() - cur.loadedAt < 15 * 60_000
+        if (fresh && cur!!.covers(west, east, south, north) && (cur.east - cur.west) <= spanX * 3.2) return
+        val w = west - spanX * .5; val e = east + spanX * .5
+        val s = (south - spanY * .5).coerceAtLeast(-80.0); val n = (north + spanY * .5).coerceAtMost(80.0)
+        if (!Satellite.detailCovers(w, e, s, n)) return
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(450)
+            val started = System.currentTimeMillis()
+            val r = withContext(Dispatchers.IO) { runCatching { Satellite.loadCloudDetail(w, e, s, n, _ui.value.worldNow) } }
+            r.onSuccess { d -> set { it.copy(cloudDetail = d) }; AppLog.data("Wolken scharf für Ausschnitt (${System.currentTimeMillis() - started} ms)") }
+        }
+    }
+
     // ---------------------------------------------------------------- Blitze
 
     /** Blitze der letzten Stunde (12 Abschnitte à 5 Minuten); beim erneuten Aufruf nur die neuen Abschnitte. */
@@ -237,7 +263,7 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     /** Beim Verlassen der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
         if (job?.isActive == true) { job?.cancel(); set { it.copy(frames = emptyList(), bytes = emptyMap()) } }
-        worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); viewJob?.cancel()
+        worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); viewJob?.cancel(); detailJob?.cancel()
     }
 
     /** Für die Testbilder am PC. */

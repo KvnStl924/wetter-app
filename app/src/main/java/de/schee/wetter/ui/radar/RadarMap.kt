@@ -236,6 +236,8 @@ fun RadarMap(
     field: Bitmap?,
     /** Wolken (Weltbild, Mercator ±85°). */
     clouds: Bitmap?,
+    /** Scharfe Wolken für den Ausschnitt (über dem Weltbild; deckt es den Ausschnitt, blendet das Weltbild aus). */
+    cloudDetail: Satellite.CloudDetail? = null,
     /** Farbfläche nur über Land (Meer bleibt frei, z. B. Temperatur) – sonst auch über dem Meer (Wind). */
     fieldLandOnly: Boolean = false,
     /** Live-Standort; [centerTick] erhöht = Karte dorthin schwenken. */
@@ -270,6 +272,9 @@ fun RadarMap(
     val reportCities by rememberUpdatedState(onCities)
     val tap by rememberUpdatedState(onTap)
     val moving by rememberUpdatedState(onMoving)
+    val detailNow by rememberUpdatedState(cloudDetail)
+    val cloudsOn by rememberUpdatedState(clouds != null)
+    var syncClouds by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val view = remember {
         MapLibre.getInstance(context)
@@ -326,8 +331,22 @@ fun RadarMap(
                 return MapTransform(c.longitude - span / 2, c.longitude + span / 2, vr.farLeft!!.latitude, vr.nearLeft!!.latitude, view.width.toFloat(), view.height.toFloat())
             }
             var copySide = 1
+            var worldCloudsHidden: Boolean? = null
+            // Scharfe Wolken decken den Ausschnitt → Weltbild darunter weich ausblenden (sonst doppelte Wolken)
+            fun clouds(cur: MapTransform?) {
+                val d = detailNow
+                val hide = cloudsOn && d != null && cur != null && d.covers(cur.west, cur.east, cur.south, cur.north)
+                if (hide == worldCloudsHidden) return
+                val st = m.style ?: return
+                worldCloudsHidden = hide
+                listOf("clouds-layer", "clouds2-layer").forEach { st.getLayer(it)?.setProperties(PropertyFactory.rasterOpacity(if (hide) 0f else 1f)) }
+                st.getLayer("clouds-hi-layer")?.setProperties(PropertyFactory.rasterOpacity(if (hide) 1f else 0f))
+            }
+            syncClouds = { worldCloudsHidden = null; clouds(current()) }
             fun send() {
-                current()?.let { report(it) }
+                val cur = current()
+                cur?.let { report(it) }
+                clouds(cur)
                 // Kopie der Weltbilder auf die Seite legen, zu der die Bildmitte näher an der Datumsgrenze liegt
                 val side = if ((m.cameraPosition.target?.longitude ?: 0.0) >= 0) 1 else -1
                 if (side != copySide) {
@@ -402,6 +421,12 @@ fun RadarMap(
                 val fieldBelow = if (s.getLayer("water-veil") != null) "water-veil" else firstLine
                 listOf(raster("field-layer", "field", 1f), raster("field2-layer", "field2", 1f)).forEach { below(it, fieldBelow) }
                 listOf(raster("clouds-layer", "clouds", 1f), raster("clouds2-layer", "clouds2", 1f)).forEach { below(it, firstLine) }
+                s.addSource(ImageSource("clouds-hi", quad(0.0, 1.0, 0.0, 1.0), empty))
+                below(raster("clouds-hi-layer", "clouds-hi", 0f), firstLine)
+                // Überblenden zwischen grobem und scharfem Bild: weich statt hart umspringen
+                listOf("clouds-layer", "clouds2-layer", "clouds-hi-layer").forEach { id ->
+                    (s.getLayer(id) as? RasterLayer)?.rasterOpacityTransition = org.maplibre.android.style.layers.TransitionOptions(320, 0)
+                }
                 // Regen darüber (über Grenzen, unter Ortsnamen)
                 listOf(raster("precip-layer", "precip", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
                 // Amtliche Warngebiete (DWD-WMS, Gemeinden) – erst beim Einschalten sichtbar
@@ -458,6 +483,13 @@ fun RadarMap(
         s.getLayer("water-veil")?.setProperties(vis(field != null && !fieldLandOnly))
     }
     LaunchedEffect(style, clouds) { listOf("clouds", "clouds2").forEach { (style?.getSource(it) as? ImageSource)?.setImage(clouds ?: empty) } }
+    LaunchedEffect(style, cloudDetail) {
+        val s = style ?: return@LaunchedEffect
+        val src = s.getSource("clouds-hi") as? ImageSource ?: return@LaunchedEffect
+        val d = cloudDetail
+        if (d == null) src.setImage(empty) else { src.setCoordinates(quad(d.west, d.east, d.south, d.north)); src.setImage(d.bitmap) }
+    }
+    LaunchedEffect(style, cloudDetail, clouds != null) { syncClouds?.invoke() }
     val density = context.resources.displayMetrics.density
     LaunchedEffect(style, labels) {
         val s = style ?: return@LaunchedEffect

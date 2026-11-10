@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
                 }
                 AnimatedContent(
                     targetState = screen,
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) },
+                    transitionSpec = { de.schee.wetter.ui.Motion.screen(initialState, targetState) },
                     label = "screen",
                 ) { s ->
                     when (s) {

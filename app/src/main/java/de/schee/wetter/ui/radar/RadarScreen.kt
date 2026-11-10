@@ -280,6 +280,13 @@ fun RadarScreen(
         vm.ensureView(tNow.south, tNow.north, tNow.west, tNow.east)
     }
 
+    // Wolken: beim Hineinzoomen den Ausschnitt scharf nachladen (nach dem Loslassen)
+    LaunchedEffect(layer == RadarLayer.CLOUDS, idle) {
+        val t = idle
+        if (preview != null || layer != RadarLayer.CLOUDS || t == null) return@LaunchedEffect
+        vm.ensureCloudDetail(t.west, t.east, t.south, t.north)
+    }
+
     // Werte und Namen: Auswahl nach dem Verschieben/Zoomen, gezeichnet in der Karte (gehen beim Wischen exakt mit)
     val labelArea = idle ?: transform
     // Jede Stadt mit Wert (Kevin am 09.11.2026): bei Wind km/h, sonst die Temperatur – auch bei Regen, Wolken, Blitzen
@@ -296,7 +303,8 @@ fun RadarScreen(
             PreviewMap(preview, if (previewArea == null) overlay else null, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, transform!!)
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
-                precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, fieldLandOnly = fieldKind == RadarLayer.TEMP,
+                precipView, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null,
+                cloudDetail = if (layer == RadarLayer.CLOUDS) ui.cloudDetail else null, fieldLandOnly = fieldKind == RadarLayer.TEMP,
                 center = fix?.let { it.lat to it.lon }, centerTick = centerTick,
                 onCities = { c, t -> cities = c; idle = t },
                 labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest,
@@ -567,9 +575,18 @@ fun precipViewBitmap(g: WindGrid, hour: Int): Bitmap {
 
 // ------------------------------------------------------------------ Wind: wandernde Linien
 
+/** Länge der Spur: so viele Punkte, alle [TRAIL_MS] Millisekunden einer. */
+private const val TRAIL = 14
+private const val TRAIL_MS = 55L
+/** Stufen für das Ausblenden (Lebensalter) und für den Verlauf der Spur (Schwanz blass → Kopf hell). */
+private const val LIFE_STEPS = 4
+private const val TAIL_STEPS = 4
+
 /**
- * Strömungslinien: kurze Striche, die mit dem Wind wandern (überall auf der Welt, Daten vom DWD).
- * Die Striche haben Kartenkoordinaten und wandern beim Verschieben mit; was aus dem Bild gerät, entsteht neu.
+ * Strömungslinien: Jeder Strich ist die echte Spur eines Teilchens, das mit dem Wind treibt (Kevin am 10.11.2026:
+ * „die sollen um die Kurve gehen“). Dadurch biegen sich die Linien in Wirbeln und Tiefs mit, statt als steife
+ * Stäbe zu drehen. Die Spur liegt in Kartenkoordinaten und wandert beim Verschieben mit; der Schwanz wird
+ * zum Ende hin blasser. Gezeichnet wird gebündelt (16 Pfade statt tausender Einzelstriche) → flüssig.
  */
 @Composable
 internal fun WindParticles(ww: WorldWeather, t: MapTransform, count: Int = 900) {
@@ -577,63 +594,126 @@ internal fun WindParticles(ww: WorldWeather, t: MapTransform, count: Int = 900) 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val field by androidx.compose.runtime.rememberUpdatedState(ww)
     fun area(m: MapTransform) = doubleArrayOf(maxOf(m.south, -84.0), minOf(m.north, 84.0), m.west, m.east)
-    fun spawn(p: DoubleArray, a: DoubleArray) {
-        if (a[0] >= a[1]) { p[2] = 2.0; return }
+    // je Teilchen: Spur als Ring (lat/lon), Anzahl gültiger Punkte, Kopf-Index, Lebensalter 0…1
+    val lat = remember { DoubleArray(count * TRAIL) }
+    val lon = remember { DoubleArray(count * TRAIL) }
+    val n = remember { IntArray(count) }
+    val head = remember { IntArray(count) }
+    val life = remember { DoubleArray(count) }
+    fun spawn(i: Int, a: DoubleArray) {
+        if (a[0] >= a[1]) { life[i] = 2.0; return }
         val y0 = RadarData.mercY(a[0]); val y1 = RadarData.mercY(a[1])
         val my = (y0 + Random.nextDouble() * (y1 - y0)) * 180.0 / 20037508.34
-        p[0] = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
-        p[1] = a[2] + Random.nextDouble() * (a[3] - a[2])
-        p[2] = 0.0
+        val k = i * TRAIL
+        lat[k] = 360.0 / PI * atan(exp(my * PI / 180.0)) - 90.0
+        lon[k] = a[2] + Random.nextDouble() * (a[3] - a[2])
+        head[i] = 0; n[i] = 1; life[i] = 0.0
     }
-    val parts = remember { val a = area(t); Array(count) { DoubleArray(3).also { spawn(it, a); it[2] = Random.nextDouble() } } }
+    remember { val a = area(t); for (i in 0 until count) { spawn(i, a); life[i] = Random.nextDouble() }; true }
     var tick by remember { mutableFloatStateOf(0f) }
     val tr by androidx.compose.runtime.rememberUpdatedState(t)
     val density = LocalDensity.current.density
+    // Testbild (ohne Animation): Spuren sofort „vorspulen“, damit die gebogenen Linien zu sehen sind
+    remember(animate) {
+        if (!animate) {
+            val m = tr; val w = DoubleArray(2)
+            val degX = (m.east - m.west) / m.w; val degY = (m.north - m.south) / m.h
+            val step = 1.2 * density * TRAIL_MS / 1000.0 * 3
+            for (i in 0 until count) {
+                if (life[i] > 1.0) continue
+                life[i] = .5
+                for (s in 1 until TRAIL) {
+                    val k = i * TRAIL + head[i]
+                    field.windAt(lat[k], lon[k], w)
+                    val nh = (head[i] + 1) % TRAIL
+                    lon[i * TRAIL + nh] = lon[k] + w[0] * step * degX
+                    lat[i * TRAIL + nh] = lat[k] + w[1] * step * degY
+                    head[i] = nh; n[i] = minOf(TRAIL, n[i] + 1)
+                }
+            }
+        }
+        true
+    }
     LaunchedEffect(animate) {
         if (!animate) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var last = 0L
             var lastSpan = 0.0
-            val w = DoubleArray(2)
+            var acc = 0L
+            val w = DoubleArray(2); val w2 = DoubleArray(2)
+            // laufende Position zwischen zwei Spurpunkten
+            val cur = DoubleArray(2 * count)
+            for (i in 0 until count) { val k = i * TRAIL + head[i]; cur[2 * i] = lat[k]; cur[2 * i + 1] = lon[k] }
+            fun respawn(i: Int, a: DoubleArray) { spawn(i, a); cur[2 * i] = lat[i * TRAIL]; cur[2 * i + 1] = lon[i * TRAIL] }
             while (isActive) {
                 androidx.compose.runtime.withFrameNanos { now ->
-                    val dt = if (last == 0L) 0.0 else ((now - last) / 1e9).coerceAtMost(.05)
+                    val dtN = if (last == 0L) 0L else (now - last).coerceAtMost(50_000_000L)
+                    val dt = dtN / 1e9
                     last = now
                     val m = tr
                     val a = area(m)
                     val degX = (m.east - m.west) / m.w; val degY = (m.north - m.south) / m.h
                     // Deutlich gezoomt: alle Striche sofort im ganzen Bild neu verteilen
                     val span = m.east - m.west
-                    if (lastSpan > 0 && (span > lastSpan * 1.25 || span < lastSpan / 1.25)) {
-                        for (p in parts) { spawn(p, a); p[2] = Random.nextDouble() * .8 }
-                        lastSpan = span
-                    } else if (lastSpan == 0.0) lastSpan = span
-                    for (p in parts) {
-                        field.windAt(p[0], p[1], w)
-                        p[1] += w[0] * 1.2 * density * dt * degX
-                        p[0] += w[1] * 1.2 * density * dt * degY
-                        p[2] += dt / 2.2
-                        val lon = m.norm(p[1])
-                        if (p[2] > 1.0 || p[0] < a[0] || p[0] > a[1] || lon < a[2] || lon > a[3]) spawn(p, a)
+                    val rezoom = lastSpan > 0 && (span > lastSpan * 1.25 || span < lastSpan / 1.25)
+                    if (rezoom || lastSpan == 0.0) lastSpan = span
+                    acc += dtN
+                    val sample = acc >= TRAIL_MS * 1_000_000L
+                    if (sample) acc %= TRAIL_MS * 1_000_000L
+                    val k1 = 1.2 * density * dt
+                    for (i in 0 until count) {
+                        if (rezoom) { respawn(i, a); life[i] = Random.nextDouble() * .8; continue }
+                        if (life[i] > 1.5) { respawn(i, a); continue }
+                        // Mittelpunkt-Verfahren: folgt Kurven sauber, auch im Zentrum von Wirbeln
+                        val la = cur[2 * i]; val lo = cur[2 * i + 1]
+                        field.windAt(la, lo, w)
+                        field.windAt(la + w[1] * k1 * degY * .5, lo + w[0] * k1 * degX * .5, w2)
+                        val nla = la + w2[1] * k1 * degY; val nlo = lo + w2[0] * k1 * degX
+                        cur[2 * i] = nla; cur[2 * i + 1] = nlo
+                        life[i] += dt / 2.6
+                        if (sample) { head[i] = (head[i] + 1) % TRAIL; n[i] = minOf(TRAIL, n[i] + 1) }
+                        val k = i * TRAIL + head[i]
+                        lat[k] = nla; lon[k] = nlo
+                        val ln = m.norm(nlo)
+                        if (life[i] > 1.0 || nla < a[0] || nla > a[1] || ln < a[2] || ln > a[3]) respawn(i, a)
                     }
                     tick = (now / 1e9).toFloat()
                 }
             }
         }
     }
+    val paths = remember { Array(LIFE_STEPS * TAIL_STEPS) { androidx.compose.ui.graphics.Path() } }
+    val stroke = remember(density) {
+        androidx.compose.ui.graphics.drawscope.Stroke(width = 1.3f * density, cap = StrokeCap.Butt, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+    }
     Canvas(Modifier.fillMaxSize()) {
         @Suppress("UNUSED_VARIABLE") val redraw = tick
-        val w = DoubleArray(2)
-        for (p in parts) {
-            if (p[2] > 1.0) continue
-            field.windAt(p[0], p[1], w)
-            val speed = hypot(w[0], w[1])
-            if (speed < 0.5) continue
-            val x = t.x(p[1]); val y = t.y(p[0])
-            val len = (4.0 + speed * 0.25).coerceAtMost(18.0) * density
-            val dx = (w[0] / speed * len).toFloat(); val dy = (-w[1] / speed * len).toFloat()
-            val a = (kotlin.math.sin(p[2] * PI) * .85).toFloat().coerceAtLeast(0f)
-            drawLine(Color.White.copy(alpha = a * .7f), Offset(x - dx, y - dy), Offset(x, y), strokeWidth = 1.3f * density, cap = StrokeCap.Round)
+        for (p in paths) p.rewind()
+        for (i in 0 until count) {
+            val lf = life[i]
+            val cnt = n[i]
+            if (lf > 1.0 || cnt < 2) continue
+            val fade = kotlin.math.sin(lf * PI)
+            if (fade < .08) continue
+            val ls = (fade * LIFE_STEPS).toInt().coerceIn(0, LIFE_STEPS - 1)
+            // vom ältesten zum neuesten Punkt; Sprung über die Datumsgrenze auslassen
+            // Innerhalb einer Helligkeitsstufe als ein Zug (lineTo) – sonst leuchten die Stoßstellen als Pünktchen
+            var px = 0f; var py = 0f; var pl = 0.0; var open = -1
+            for (j in 0 until cnt) {
+                val idx = i * TRAIL + ((head[i] - (cnt - 1 - j)) % TRAIL + TRAIL) % TRAIL
+                val x = t.x(lon[idx]); val y = t.y(lat[idx])
+                if (j > 0 && kotlin.math.abs(lon[idx] - pl) < 90) {
+                    val b = ls * TAIL_STEPS + (j * TAIL_STEPS / cnt).coerceIn(0, TAIL_STEPS - 1)
+                    val path = paths[b]
+                    if (open != b) path.moveTo(px, py)
+                    path.lineTo(x, y); open = b
+                } else open = -1
+                px = x; py = y; pl = lon[idx]
+            }
+        }
+        for (ls in 0 until LIFE_STEPS) for (ts in 0 until TAIL_STEPS) {
+            val alpha = ((ls + 1f) / LIFE_STEPS) * (.1f + .8f * ((ts + 1f) / TAIL_STEPS))
+            drawPath(paths[ls * TAIL_STEPS + ts], Color.White.copy(alpha = alpha * .78f), style = stroke)
         }
     }
 }

@@ -160,16 +160,26 @@ fun MainScreen(
     LaunchedEffect(selected, pageIds.size) { if (selected != pager.currentPage && selected < pageIds.size) pager.scrollToPage(selected) }
 
     Box(Modifier.fillMaxSize()) {
+        // Nachbarseiten vorab aufbauen: beim Wischen ist der nächste Ort schon fertig da (vorher „ploppte“ er auf).
+        // Weiches iOS-Einrasten; die Seite, die geht, tritt leicht zurück und blendet etwas ab (Tiefe).
         androidx.compose.foundation.pager.HorizontalPager(
-            state = pager, userScrollEnabled = !editTiles, beyondViewportPageCount = 0,
+            state = pager, userScrollEnabled = !editTiles, beyondViewportPageCount = 1,
             modifier = Modifier.fillMaxSize(), key = { pageIds.getOrElse(it) { "leer" } },
+            flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                pager, snapAnimationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f)),
         ) { page ->
             val id = pageIds.getOrNull(page)
             val ui = preview ?: when (id) {
                 null -> WeatherUi(needsPermission = true)
                 else -> states[id] ?: vm.uiFor(id).copy(loading = true)
             }
-            WeatherPage(
+            val depth = Modifier.graphicsLayer {
+                val off = kotlin.math.abs(pager.getOffsetDistanceInPages(page)).coerceIn(0f, 1f)
+                val k = off * off * (3 - 2 * off)
+                alpha = 1f - .28f * k
+                scaleX = 1f - .035f * k; scaleY = scaleX
+            }
+            Box(depth) { WeatherPage(
                 ui = ui, isGps = id == WeatherViewModel.GPS, previewNow = previewNow, tileState = tileState, editTiles = editTiles,
                 radar = radar, previewNowcast = previewNowcast, previewThunder = previewThunder,
                 mode = mode, driveConnected = driveConnected,
@@ -177,7 +187,7 @@ fun MainScreen(
                 onRefresh = { AppLog.tap("Herunterziehen → Aktualisieren"); haptic(Haptics.Kind.SNAP); vm.refresh("Herunterziehen") },
                 onAllowLocation = { permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) },
                 onSearch = onOpenPlaces, onPickFolder = { pickFolder.launch(null) }, onOpenRadar = onOpenRadar,
-            )
+            ) }
         }
 
         LaunchedEffect(hintId) { if (hint != null) { delay(2600); hint = null } }
@@ -206,6 +216,9 @@ fun MainScreen(
         }
     }
 }
+
+/** Orte, deren Inhalt schon einmal eingeblendet wurde (solange die App läuft). */
+private val appeared = HashSet<String>()
 
 /** Eine Seite (ein Ort): Himmel, Kopf, Stundenliste, 10 Tage, Kacheln. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -352,8 +365,10 @@ private fun WeatherPage(
                 if (f != null) {
                     // Inhalt blendet beim ersten Laden weich ein und gleitet leicht nach oben
                     val animate = de.schee.wetter.ui.sky.LocalAnimate.current
-                    var shownOnce by remember { mutableStateOf(!animate) }
-                    LaunchedEffect(Unit) { shownOnce = true }
+                    // nur beim allerersten Erscheinen eines Ortes – nicht bei jeder Rückkehr aus Einstellungen/Karte
+                    val key = ui.place?.name.orEmpty()
+                    var shownOnce by remember { mutableStateOf(!animate || key in appeared) }
+                    LaunchedEffect(Unit) { shownOnce = true; appeared += key }
                     val appear by androidx.compose.animation.core.animateFloatAsState(if (shownOnce) 1f else 0f, androidx.compose.animation.core.tween(450), label = "appear")
                     val lift = with(density) { 24.dp.toPx() }
                     Column(

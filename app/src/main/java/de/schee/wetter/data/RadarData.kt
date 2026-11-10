@@ -87,7 +87,88 @@ object RadarData {
 
     fun render(bytes: ByteArray, kind: Kind): Bitmap? {
         val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        return recolor(raw, if (kind == Kind.MODEL) MODEL_SCALE else RADAR_SCALE)
+        return crisp(raw, if (kind == Kind.MODEL) MODEL_SCALE else RADAR_SCALE)
+    }
+
+    /** Wie viel feiner als die Messung gezeichnet wird (2 = doppelte Auflösung). */
+    const val UPSCALE = 2
+
+    /** Farbe je Stufe der Regenmenge (log-Skala, 256 Stufen bis ~200 mm/h) – schneller als für jeden Punkt neu rechnen. */
+    private val LUT: IntArray by lazy {
+        IntArray(256) { i ->
+            val mm = kotlin.math.expm1(i / 255.0 * LOG_MAX)
+            val s = ((mm - 0.5) / 1.0).coerceIn(0.0, 1.0); val sm = s * s * (3 - 2 * s)
+            val alpha = (0xB0 + (0xD8 - 0xB0) * sm).toInt()
+            (alpha shl 24) or (colorFor(mm) and 0xFFFFFF)
+        }
+    }
+    private val LOG_MAX = kotlin.math.ln1p(200.0)
+
+    /**
+     * Gestochen scharfer Regen (Kevin am 10.11.2026: „richtig crispy“): Statt Farben weichzuzeichnen, wird die
+     * Regenmenge selbst geglättet und auf die doppelte Auflösung hochgerechnet; erst dann kommt die Farbe drauf.
+     * So bleiben die Übergänge zwischen leicht/mäßig/stark weich, die Ränder des Regengebiets aber glatt und klar –
+     * ohne Treppen der 1-km-Messpunkte und ohne grauen Schleier.
+     */
+    fun crisp(src: Bitmap, scale: Map<Int, Double>, up: Int = UPSCALE): Bitmap {
+        val w = src.width; val h = src.height; val n = w * h
+        val px = IntArray(n); src.getPixels(px, 0, w, 0, 0, w, h)
+        // 1. Farbe → Regenmenge (log) und „hier regnet es“ (0/1)
+        val cache = HashMap<Int, Double>()
+        var v = FloatArray(n); var c = FloatArray(n)
+        for (i in 0 until n) {
+            val p = px[i]
+            if (p ushr 24 == 0) continue
+            val mm = cache.getOrPut(p) { mmOf(p, scale) }
+            if (mm > 0) { v[i] = kotlin.math.ln1p(mm).toFloat(); c[i] = 1f }
+        }
+        // 2. einmal 1-2-1 glätten (Menge nach Abdeckung gewichtet → Ränder werden nicht „dünner“)
+        for (i in 0 until n) v[i] *= c[i]
+        var tv = FloatArray(n); var tc = FloatArray(n)
+        for (horizontal in booleanArrayOf(true, false)) {
+            for (y in 0 until h) for (x in 0 until w) {
+                val i = y * w + x
+                val p = if (horizontal) (if (x > 0) i - 1 else i) else (if (y > 0) i - w else i)
+                val q = if (horizontal) (if (x < w - 1) i + 1 else i) else (if (y < h - 1) i + w else i)
+                tv[i] = (v[p] + 2 * v[i] + v[q]) * .25f; tc[i] = (c[p] + 2 * c[i] + c[q]) * .25f
+            }
+            var s = v; v = tv; tv = s; s = c; c = tc; tc = s
+        }
+        // 3. hochrechnen (bilinear) und einfärben; Rand: weiche Kante genau um 50 % Abdeckung
+        val ow = w * up; val oh = h * up
+        val out = IntArray(ow * oh)
+        val inv = 1f / up
+        for (oy in 0 until oh) {
+            val fy = ((oy + .5f) * inv - .5f).coerceIn(0f, h - 1.001f)
+            val y0 = fy.toInt(); val ty = fy - y0; val r0 = y0 * w; val r1 = minOf(y0 + 1, h - 1) * w
+            for (ox in 0 until ow) {
+                val fx = ((ox + .5f) * inv - .5f).coerceIn(0f, w - 1.001f)
+                val x0 = fx.toInt(); val tx = fx - x0; val x1 = minOf(x0 + 1, w - 1)
+                val a00 = c[r0 + x0]; val a01 = c[r0 + x1]; val a10 = c[r1 + x0]; val a11 = c[r1 + x1]
+                if (a00 + a01 + a10 + a11 == 0f) continue
+                val cov = (a00 * (1 - tx) + a01 * tx) * (1 - ty) + (a10 * (1 - tx) + a11 * tx) * ty
+                if (cov < .12f) continue
+                val vv = (v[r0 + x0] * (1 - tx) + v[r0 + x1] * tx) * (1 - ty) + (v[r1 + x0] * (1 - tx) + v[r1 + x1] * tx) * ty
+                val lv = vv / cov   // mittlere Menge dort, wo es regnet
+                val k = ((cov - .12f) / .36f).coerceIn(0f, 1f); val edge = k * k * (3 - 2 * k)
+                val col = LUT[(lv / LOG_MAX * 255).toInt().coerceIn(0, 255)]
+                out[oy * ow + ox] = (((col ushr 24) * edge).toInt() shl 24) or (col and 0xFFFFFF)
+            }
+        }
+        return Bitmap.createBitmap(out, ow, oh, Bitmap.Config.ARGB_8888)
+    }
+
+    /** Regenmenge einer DWD-Farbe (0 = kein Regen bzw. Rand/keine Daten). */
+    private fun mmOf(argb: Int, scale: Map<Int, Double>): Double {
+        if (argb ushr 24 < 140) return 0.0
+        val r = (argb shr 16) and 255; val g = (argb shr 8) and 255; val b = argb and 255
+        var best = 0.0; var bestD = Int.MAX_VALUE
+        for ((col, mm) in scale) {
+            val dr = r - ((col shr 16) and 255); val dg = g - ((col shr 8) and 255); val db = b - (col and 255)
+            val d = dr * dr + dg * dg + db * db
+            if (d < bestD) { bestD = d; best = mm }
+        }
+        return if (bestD > 40 * 40) 0.0 else best
     }
 
     // ------------------------------------------------------------------ Farben
@@ -130,63 +211,9 @@ object RadarData {
 
     /** Jede Farbe der nächsten Legendenfarbe zuordnen; unbekannte (Rand, „keine Daten“) werden durchsichtig. */
     internal fun mapColor(argb: Int, scale: Map<Int, Double>): Int {
-        val a = argb ushr 24
-        if (a < 140) return 0 // „keine Daten“ (halbtransparentes Grau) und Kantenglättung
-        val r = (argb shr 16) and 255; val g = (argb shr 8) and 255; val b = argb and 255
-        var best = Double.NaN; var bestD = Int.MAX_VALUE
-        for ((c, mm) in scale) {
-            val dr = r - ((c shr 16) and 255); val dg = g - ((c shr 8) and 255); val db = b - (c and 255)
-            val d = dr * dr + dg * dg + db * db
-            if (d < bestD) { bestD = d; best = mm }
-        }
-        if (bestD > 40 * 40) return 0
-        val rgb = colorFor(best) and 0xFFFFFF
-        val alpha = if (best < 1.0) 0xB0 else 0xD8
-        return (alpha shl 24) or rgb
-    }
-
-    fun recolor(src: Bitmap, scale: Map<Int, Double>): Bitmap {
-        val w = src.width; val h = src.height
-        val px = IntArray(w * h); src.getPixels(px, 0, w, 0, 0, w, h)
-        val cache = HashMap<Int, Int>()
-        for (i in px.indices) {
-            val c = px[i]
-            px[i] = if (c ushr 24 == 0) 0 else cache.getOrPut(c) { mapColor(c, scale) }
-        }
-        return Bitmap.createBitmap(soften(px, w, h), w, h, Bitmap.Config.ARGB_8888)
-    }
-
-    /**
-     * Weichzeichnen (2 × 3er-Kernel 1-2-1 in beide Richtungen), damit die 1-km-Rasterzellen des Radars
-     * nicht als harte Vierecke erscheinen. Farben werden nach Deckkraft gewichtet, damit die Ränder nicht grau werden.
-     */
-    internal fun soften(src: IntArray, w: Int, h: Int, passes: Int = 2): IntArray {
-        val n = w * h
-        var a = FloatArray(n); var r = FloatArray(n); var g = FloatArray(n); var b = FloatArray(n)
-        for (i in 0 until n) {
-            val c = src[i]; val al = (c ushr 24) / 255f
-            a[i] = al; r[i] = ((c shr 16) and 255) * al; g[i] = ((c shr 8) and 255) * al; b[i] = (c and 255) * al
-        }
-        var ta = FloatArray(n); var tr = FloatArray(n); var tg = FloatArray(n); var tb = FloatArray(n)
-        fun blur(horizontal: Boolean) {
-            for (y in 0 until h) for (x in 0 until w) {
-                val i = y * w + x
-                val p = if (horizontal) (if (x > 0) i - 1 else i) else (if (y > 0) i - w else i)
-                val q = if (horizontal) (if (x < w - 1) i + 1 else i) else (if (y < h - 1) i + w else i)
-                ta[i] = (a[p] + 2 * a[i] + a[q]) / 4; tr[i] = (r[p] + 2 * r[i] + r[q]) / 4
-                tg[i] = (g[p] + 2 * g[i] + g[q]) / 4; tb[i] = (b[p] + 2 * b[i] + b[q]) / 4
-            }
-            var s = a; a = ta; ta = s; s = r; r = tr; tr = s; s = g; g = tg; tg = s; s = b; b = tb; tb = s
-        }
-        repeat(passes) { blur(true); blur(false) }
-        val out = IntArray(n)
-        for (i in 0 until n) {
-            val al = a[i]
-            if (al < 0.03f) continue
-            out[i] = ((al * 255).toInt().coerceIn(0, 255) shl 24) or
-                ((r[i] / al).toInt().coerceIn(0, 255) shl 16) or ((g[i] / al).toInt().coerceIn(0, 255) shl 8) or (b[i] / al).toInt().coerceIn(0, 255)
-        }
-        return out
+        val mm = mmOf(argb, scale)
+        if (mm <= 0) return 0
+        return ((if (mm < 1.0) 0xB0 else 0xD8) shl 24) or (colorFor(mm) and 0xFFFFFF)
     }
 
     /** Gibt es im Bild sichtbaren Niederschlag (nach dem Umfärben)? */
