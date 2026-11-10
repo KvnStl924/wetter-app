@@ -332,10 +332,11 @@ fun RadarScreen(
         if (layer == RadarLayer.WIND && t != null && ww?.wind != null && windAlpha > 0.01f)
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = windAlpha }) { WindParticles(ww, t) }
         if (preview != null && lightning && t != null) LightningDots(ui.strikes, ui.strikesNewest, t)
-        val f = fix
-        if (preview != null && f != null && t != null) MyLocationDot(f, t)
         if (preview != null && t != null) motion?.let { MotionArrowPreview(it, t) }
         if (preview != null && t != null) ComposeLabels(t, rememberLabels(t, cities, labelWw, layer != RadarLayer.WIND, units, place, fix, hotspots = fieldKind != null, placeValue = fieldKind != null, countries = countries))
+        // Standort-Punkt über den Beschriftungen (wie in der Karte)
+        val f = fix
+        if (preview != null && f != null && t != null) MyLocationDot(f, t)
 
         // Oben nur der Titel (Schließen mit der Zurück-Geste)
         Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -838,7 +839,12 @@ internal fun rememberLabelsAsync(
 }
 
 /** Gewählte Stelle für eine Beschriftung. kind wie bei [MapLabel]. */
-internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int, val country: Int = -1)
+internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int, val country: Int = -1, val small: Boolean = false)
+
+/** Größe der Länder-Beschriftung (Max/Min): Schrift in sp, Pille als Faktor – kleine Länder kleiner (Kevin am 10.11.2026). */
+internal class CountryStyle(val text: Float, val pill: Float)
+internal val COUNTRY_BIG = CountryStyle(11f, .9f)
+internal val COUNTRY_SMALL = CountryStyle(9.5f, .78f)
 
 internal fun pickLabels(
     idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean, place: RadarPlace?, fix: LocationSource.Fix?,
@@ -869,40 +875,29 @@ internal fun pickLabels(
             if (b[0] < 4 * density || b[2] > idle.w - 4 * density || inUi(b) || overlaps(b)) return false
             out += l; boxes += b; return true
         }
-        // Max/Min-Schalter: nur die Länder (größte zuerst), jedes an einem Ort mittig im Land –
-        // liegt der außerhalb des Ausschnitts, am größten sichtbaren Ort des Landes
+        // Max/Min-Schalter: nur die Länder, die Beschriftung IMMER fest in der Landesmitte (Kevin am 10.11.2026) –
+        // nie verschoben; am Bildrand darf sie abgeschnitten sein. Wichtige (große) Länder zuerst; was sich mit
+        // einem schon gesetzten Land überschneidet, fällt weg → weit draußen nur die großen, beim Hineinzoomen mehr.
         val c = idx?.countries
         if (countries && c != null && ww != null && temp) {
-            fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
-            // je Land bis zu 40 der größten sichtbaren Orte (Ausweich-Stellen, wenn die Mitte am Rand/unter den Knöpfen liegt)
-            val inView = HashMap<Int, MutableList<Int>>()
-            for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = 8000)) {
-                val k = c.of[i]; if (k < 0) continue
-                val l = inView.getOrPut(k) { mutableListOf() }; if (l.size < 40) l += i
-            }
-            val cx = idle.w / 2; val cy = idle.h * .45f
-            fun anchorVisible(k: Int) = !c.anchorLat[k].isNaN() && idle.visible(idle.x(c.anchorLon[k]), idle.y(c.anchorLat[k]))
-            // sichtbare Stellen der Landesfläche (Stichprobe, höchstens ~400 Zellen je Land)
-            val cellSpots = HashMap<Int, MutableList<Pair<Double, Double>>>()
-            for (k in 0 until c.size) {
-                val cs = c.cells[k]; if (cs.isEmpty()) continue
-                val step = maxOf(1, cs.size / 400)
-                var j = 0
-                while (j < cs.size) {
-                    val la = c.cellLat(cs[j]); val lo = c.cellLon(cs[j])
-                    if (idle.visible(idle.x(lo), idle.y(la))) cellSpots.getOrPut(k) { mutableListOf() } += la to lo
-                    j += step
-                }
-            }
-            val cand = (inView.keys + cellSpots.keys + (0 until c.size).filter { anchorVisible(it) }).toSet()
-            fun dist(p: Pair<Double, Double>) = hypot(idle.x(p.second) - cx, idle.y(p.first) - cy)
-            for (k in cand.sortedByDescending { c.pop[it] }) {
+            for (k in c.rankOrder) {
+                val la = c.anchorLat[k]; val lo = c.anchorLon[k]
+                if (la.isNaN()) continue
+                val x = idle.x(lo); val y = idle.y(la)
+                // Mitte muss im Bild liegen, nicht unter dem Bedienfeld unten
+                if (!idle.visible(x, y) || y > idle.h - 196 * density) continue
+                // erst zeigen, wenn das Land auf dem Bildschirm groß genug ist (Kantenlänge ≥ 30 dp):
+                // weit draußen nur die großen Länder, Kleinstaaten und Inseln beim Hineinzoomen
+                val kmPerPx = (idle.east - idle.west) * 111.2 * kotlin.math.cos(Math.toRadians(la)) / idle.w
+                if (kotlin.math.sqrt(maxOf(c.area[k], 300.0)) / kmPerPx < 30 * density) continue
+                val small = c.small(k)
                 val name = c.name(k)
-                // erst die Landesmitte, dann sichtbare Stellen des Landes (Orte und Fläche) – die zur Bildmitte hin zuerst
-                val alt = (inView[k].orEmpty().map { idx.lat[it].toDouble() to idx.lon[it].toDouble() } + cellSpots[k].orEmpty())
-                    .sortedBy { dist(it) }.take(16)
-                val spots = (if (c.anchorLat[k].isNaN()) emptyList() else listOf(c.anchorLat[k] to c.anchorLon[k])) + alt
-                for ((la, lo) in spots) if (add(LabelPick(la, lo, name, 4, k))) break
+                val s = if (small) COUNTRY_SMALL else COUNTRY_BIG
+                val nameW = name.length * 6.8f * s.text / 12.5f * density
+                val w = maxOf(nameW, 92f * s.pill * density)
+                val b = floatArrayOf(x - w / 2, y - (s.text * 1.35f + 3) * density, x + w / 2, y + (4 + 17 * s.pill) * density)
+                if (overlaps(b)) continue
+                out += LabelPick(la, lo, name, 4, k, small); boxes += b
                 if (out.size > 60) break
             }
             return out
@@ -972,7 +967,7 @@ internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolea
             if (l.kind == 4) {
                 val c = idx?.countries ?: return@mapNotNull null
                 val (max, min) = (if (ww != null) de.schee.wetter.data.Countries.extremes(c, l.country, idx, ww) else null) ?: return@mapNotNull null
-                return@mapNotNull MapLabel(l.lat, l.lon, "${units.tNum(max)}°", l.name, 4, tempColorMap(max), "${units.tNum(min)}°", tempColorMap(min))
+                return@mapNotNull MapLabel(l.lat, l.lon, "${units.tNum(max)}°", l.name, 4, tempColorMap(max), "${units.tNum(min)}°", tempColorMap(min), small = l.small)
             }
             var color: Int? = null
             val value: String? = when {
@@ -1006,12 +1001,13 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
             }
             continue
         }
+        val ns = if (l.kind == 4) nameStyle.copy(fontSize = countryStyle(l).text.sp) else nameStyle
         if (l.kind != 0 && l.kind != 2 && l.kind != 4) Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color(0xFFF2F3F5), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y))
             drawCircle(Color.Black.copy(alpha = .6f), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y), style = Stroke(1f))
         }
         androidx.compose.ui.layout.Layout(content = {
-            if (l.name != null && l.kind != 0) Text(l.name, style = nameStyle)
+            if (l.name != null && l.kind != 0) Text(l.name, style = ns)
             if (l.value != null && l.color != null) { val img = remember(l) { labelBitmap(l, density)!!.asImageBitmap() }; Image(img, null) }
         }) { ms, c ->
             val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }

@@ -52,7 +52,12 @@ private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360,
  * 4 = Land mit Höchst- ([value]) und Tiefstwert ([value2]).
  */
 data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null,
-                    val value2: String? = null, val color2: Int? = null)
+                    val value2: String? = null, val color2: Int? = null,
+                    /** Land: kleines Land → kleinere Schrift und Pille. */
+                    val small: Boolean = false)
+
+/** Schrift und Pille einer Länder-Beschriftung (kind 4). */
+internal fun countryStyle(l: MapLabel) = if (l.small) COUNTRY_SMALL else COUNTRY_BIG
 
 /** Farbe für Zahl und Rand der Pille: Wertfarbe, aufgehellt (gut lesbar auf dunklem Grund). */
 internal fun pillColor(c: Int, white: Double = 0.45): Int {
@@ -67,14 +72,14 @@ private fun pillName(c: Int, text: String) = "v_%06x_%s".format(pillColor(c) and
 private fun pillName(l: MapLabel): String? {
     val v = l.value ?: return null; val c = l.color ?: return null
     val v2 = l.value2; val c2 = l.color2
-    return if (v2 != null && c2 != null) "r_%06x_%s_%06x_%s".format(pillColor(c) and 0xFFFFFF, v, pillColor(c2) and 0xFFFFFF, v2) else pillName(c, v)
+    return if (v2 != null && c2 != null) "r%s_%06x_%s_%06x_%s".format(if (l.small) "s" else "b", pillColor(c) and 0xFFFFFF, v, pillColor(c2) and 0xFFFFFF, v2) else pillName(c, v)
 }
 
 /** Bild zu [pillName]: einfache Pille bzw. Max/Min-Pille. */
 internal fun labelBitmap(l: MapLabel, density: Float): Bitmap? {
     val v = l.value ?: return null; val c = l.color ?: return null
     val v2 = l.value2; val c2 = l.color2
-    return if (v2 != null && c2 != null) rangeBitmap(v, c, v2, c2, density) else pillBitmap(v, c, density)
+    return if (v2 != null && c2 != null) rangeBitmap(v, c, v2, c2, density * countryStyle(l).pill) else pillBitmap(v, c, density)
 }
 
 /**
@@ -120,6 +125,7 @@ private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatur
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
         pillName(l)?.let { addStringProperty("pill", it) }
+        if (l.kind == 4) addNumberProperty("ts", countryStyle(l).text)
     }
 })
 
@@ -205,7 +211,9 @@ private fun addOverlayLayers(s: Style) {
     ).withFilter(Expression.all(Expression.neq(kind, Expression.literal(2)), Expression.neq(kind, Expression.literal(4)), Expression.any(Expression.all(Expression.neq(kind, Expression.literal(0)), withPill), Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
         PropertyFactory.textField(Expression.get("name")),
-        PropertyFactory.textFont(arrayOf("Noto Sans Bold")), PropertyFactory.textSize(12.5f),
+        PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
+        // Länder (Max/Min) kleiner, kleine Länder noch kleiner; sonst 12,5
+        PropertyFactory.textSize(Expression.coalesce(Expression.toNumber(Expression.get("ts")), Expression.literal(12.5f))),
         PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.4f), PropertyFactory.textHaloBlur(.4f),
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
         // eigener Ort: Name über, Wert unter dem blauen Standortpunkt (der sonst den Wert verdeckte, 0.6.4)

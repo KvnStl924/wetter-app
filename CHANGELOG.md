@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.2 – Max/Min: Beschriftung fest in der Landesmitte
+- Ländername und Werte stehen immer fest in der Mitte des Landes (am weitesten weg von Küste und Grenzen, im Hauptland) – nie mehr im Meer oder auf dem Nachbarland; am Bildrand darf sie abgeschnitten sein
+- Weit herausgezoomt nur die großen Länder, kleine Länder und Inseln erst beim Hineinzoomen; überlappende Beschriftungen fallen weg
+- Schrift der Länder kleiner, bei kleinen Ländern noch kleiner
+- Spitzbergen eigenes Gebiet (vorher zählte es zu Norwegens Tiefstwert)
+
 ## 3.0.1 – Max/Min: ganze Landesfläche, Karte aufgeräumt
 - Max/Min zählt jetzt die ganze Landesfläche (Natural Earth, 0,2°-Gitter) statt nur der Orte – Grönland z. B. −35° statt −7°; Überseegebiete zählen nicht zum Mutterland
 - Bei Max/Min keine doppelten Ländernamen der Karte mehr; Länder finden auch am Bildrand einen freien Platz; kürzere Namen (Großbritannien, USA …)

@@ -151,6 +151,8 @@ class ScreenshotDump {
     @Test fun tempMinMax() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin.png", minMax = true)
     @Test fun tempMinMaxEurope() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin_europa.png", area = doubleArrayOf(-12.0, 32.0, 35.0, 62.0), minMax = true)
     @Test fun tempMinMaxAtlantic() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin_atlantik.png", area = doubleArrayOf(-80.0, 0.0, 40.0, 82.0), minMax = true)
+    @Test fun tempMinMaxAfrica() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin_afrika.png", area = doubleArrayOf(-30.0, 60.0, -38.0, 40.0), minMax = true)
+    @Test fun tempMinMaxAmerica() = radarShot(de.schee.wetter.ui.radar.RadarLayer.TEMP, "temp_maxmin_amerika.png", area = doubleArrayOf(-140.0, -50.0, 5.0, 75.0), minMax = true)
     @Test fun clouds() = radarShot(de.schee.wetter.ui.radar.RadarLayer.CLOUDS, "wolken.png")
     @Test fun cloudsWorld() = radarShot(de.schee.wetter.ui.radar.RadarLayer.CLOUDS, "wolken_welt.png", area = doubleArrayOf(-100.0, 60.0, -60.0, 75.0))
     @Test fun lightning() = radarShot(null, "blitze.png", lightning = true, area = doubleArrayOf(0.0, 25.0, -12.0, 14.0))
