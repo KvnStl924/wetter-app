@@ -211,9 +211,10 @@ fun MainScreen(
 
     openDay?.let { (f, d) ->
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val today = LocalDateTime.now(runCatching { ZoneId.of(f.timezone) }.getOrDefault(ZoneId.systemDefault())).toLocalDate()
+        val nowLocal = LocalDateTime.now(runCatching { ZoneId.of(f.timezone) }.getOrDefault(ZoneId.systemDefault()))
+        val today = nowLocal.toLocalDate()
         ModalBottomSheet(onDismissRequest = { AppLog.tap("Tagesdetails geschlossen"); openDay = null }, sheetState = sheet, containerColor = Color(0xFF141A2B)) {
-            Column(Modifier.verticalScroll(rememberScrollState())) { DayDetails(f, d, today, Units.from(context)) }
+            Column(Modifier.verticalScroll(rememberScrollState())) { DayDetails(f, d, today, Units.from(context), nowLocal) }
         }
     }
 }

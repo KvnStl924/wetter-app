@@ -1,6 +1,13 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.1.0 – Tagesseite neu gestaltet
+- Die Seite eines Tages (Tippen in der 10-Tage-Liste) ist neu gestaltet, im Stil von iOS: großer Kopf mit Höchst- und Tiefstwert, Wetterlage und Symbol
+- Neu: Temperaturverlauf als Kurve in Temperaturfarben mit Wetter-Symbolen alle 3 Stunden, Höchst- und Tiefstwert markiert, bei „Heute“ die laufende Stunde; darunter die Regenwahrscheinlichkeit je Stunde als Balken
+- Niederschlag, Wind, Sonne (mit Dauer des Tageslichts) und Datenquelle als vier Kacheln statt Fließtext
+- Stundenliste in einer Kachel mit Trennlinien, Regen mit Tropfen, Temperatur mit kleinem Balken (Lage zwischen Tiefst- und Höchstwert des Tages)
+- Die Angaben selbst sind unverändert
+
 ## 3.0.5 – Regen-Vorhersage: scharfes Radarbild bleibt stehen
 - Direkt nach „Jetzt“ sprang die Karte außerhalb Deutschlands vom scharfen Radarbild auf das grobe Modellbild. Jetzt bleibt das Radarbild von „Jetzt“ in den ersten zwei Stunden stehen und geht weich ins Modell über (nach 5 Min. fast nur Radar, nach 1 Std. halb, nach 2 Std. nur Modell)
 - Im Messgebiet des DWD-Radars bleibt nichts stehen – dort läuft wie bisher die echte DWD-Vorhersage in 5-Minuten-Schritten

@@ -77,6 +77,23 @@ class ScreenshotDump {
         save(activity.window.decorView, File(target, "tag_sicherheit.png"))
     }
 
+    /** Tages-Fenster für „Heute“ (laufende Stunde markiert) – ganze Seite. */
+    @Test @Config(qualifiers = "w411dp-h2300dp-xxhdpi")
+    fun dayToday() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val f = ForecastParser.parse(res("icon.json"), res("ecmwf.json"), System.currentTimeMillis(), res("multi.json"))
+        val d = f.days[0]
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        activity.setContent { androidx.compose.runtime.CompositionLocalProvider(de.schee.wetter.ui.sky.LocalAnimate provides false) { WetterTheme {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.background(androidx.compose.ui.graphics.Color(0xFF141A2B))) {
+                de.schee.wetter.ui.main.DayDetails(f, d, d.date, de.schee.wetter.data.Units("°C", "km/h"), d.date.atTime(14, 20))
+            }
+        } } }
+        settle()
+        save(activity.window.decorView, File(target, "tag_heute.png"))
+    }
+
     @Test fun mainOffline() {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
