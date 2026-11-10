@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.0.3 – Ortsnamen auf der Karte wieder da
+- Seit 3.0.2 fehlten auf der Karte alle Ortsnamen (Niederschlag, Blitze, Wind, Temperatur, Wolken) – es standen nur noch Punkte und Werte da. Ursache: Orte bekamen die Schriftgröße 0. Behoben, mit eigenem Test dagegen
+
 ## 3.0.2 – Max/Min: Beschriftung fest in der Landesmitte
 - Ländername und Werte stehen immer fest in der Mitte des Landes (am weitesten weg von Küste und Grenzen, im Hauptland) – nie mehr im Meer oder auf dem Nachbarland; am Bildrand darf sie abgeschnitten sein
 - Weit herausgezoomt nur die großen Länder, kleine Länder und Inseln erst beim Hineinzoomen; überlappende Beschriftungen fallen weg

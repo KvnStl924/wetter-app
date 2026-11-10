@@ -113,4 +113,17 @@ class RadarTest {
         assertTrue(hypot(o[0], o[1]) in 0.5..40.0)
         assertTrue(de.schee.wetter.data.DwdWorld.url(de.schee.wetter.data.DwdWorld.Field.TEMP, Instant.parse("2026-11-09T18:00:00Z")).contains("2026-11-09T18:00:00.000Z"))
     }
+
+    /** 3.0.2: Orte hatten keine Schriftgröße → die Karte zeichnete ihre Namen mit Größe 0 (unsichtbar). */
+    @Test fun jedeBeschriftungHatEineSchriftgroesse() {
+        val labels = listOf(
+            de.schee.wetter.ui.radar.MapLabel(50.6, 6.6, "9 km/h", "Mechernich", 2, 0xFF4A6CC0.toInt()),
+            de.schee.wetter.ui.radar.MapLabel(52.5, 13.4, null, "Berlin", 3),
+            de.schee.wetter.ui.radar.MapLabel(48.9, 2.3, "12°", "Paris", 1, 0xFF4A6CC0.toInt()),
+            de.schee.wetter.ui.radar.MapLabel(46.9, 2.3, "19°", "Frankreich", 4, 0xFF4A6CC0.toInt(), "3°", 0xFF4A6CC0.toInt()),
+            de.schee.wetter.ui.radar.MapLabel(47.6, 14.1, "9°", "Österreich", 4, 0xFF4A6CC0.toInt(), "-2°", 0xFF4A6CC0.toInt(), small = true),
+        )
+        val sizes = de.schee.wetter.ui.radar.labelFeatures(labels).features()!!.map { it.getNumberProperty("ts").toFloat() }
+        org.junit.Assert.assertEquals(listOf(12.5f, 12.5f, 12.5f, 11f, 9.5f), sizes)
+    }
 }

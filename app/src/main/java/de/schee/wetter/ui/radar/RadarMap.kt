@@ -119,13 +119,17 @@ internal fun rangeBitmap(max: String, cMax: Int, min: String, cMin: Int, density
     return bmp
 }
 
-private fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
+/** Schriftgröße der Namen ohne Länder-Stil (Orte, Hotspots, eigener Ort). */
+internal const val LABEL_TEXT = 12.5f
+
+internal fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatures(labels.map { l ->
     Feature.fromGeometry(Point.fromLngLat(l.lon, l.lat)).apply {
         addNumberProperty("kind", l.kind)
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
         pillName(l)?.let { addStringProperty("pill", it) }
-        if (l.kind == 4) addNumberProperty("ts", countryStyle(l).text)
+        // Schriftgröße immer mitgeben: fehlte sie, machte die Karte daraus Größe 0 – alle Ortsnamen waren weg (3.0.2, behoben 3.0.3)
+        addNumberProperty("ts", if (l.kind == 4) countryStyle(l).text else LABEL_TEXT)
     }
 })
 
@@ -212,8 +216,9 @@ private fun addOverlayLayers(s: Style) {
     s.addLayer(SymbolLayer("lbl-name", "labels").withProperties(
         PropertyFactory.textField(Expression.get("name")),
         PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-        // Länder (Max/Min) kleiner, kleine Länder noch kleiner; sonst 12,5
-        PropertyFactory.textSize(Expression.coalesce(Expression.toNumber(Expression.get("ts")), Expression.literal(12.5f))),
+        // Länder (Max/Min) kleiner, kleine Länder noch kleiner; sonst 12,5. „ts“ steht an jedem Punkt (siehe labelFeatures) –
+        // toNumber macht aus einem fehlenden Wert 0 statt den Ersatzwert zu nehmen.
+        PropertyFactory.textSize(Expression.toNumber(Expression.get("ts"))),
         PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("rgba(0,0,0,0.9)"), PropertyFactory.textHaloWidth(1.4f), PropertyFactory.textHaloBlur(.4f),
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
         // eigener Ort: Name über, Wert unter dem blauen Standortpunkt (der sonst den Wert verdeckte, 0.6.4)
