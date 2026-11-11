@@ -382,12 +382,8 @@ private fun WeatherPage(
                             onMap = { onOpenRadar(de.schee.wetter.ui.radar.RadarLayer.RAIN, "Warnung") })
                         HourlyCard(f, now, mode, units, onMode)
                         DailyCard(f, today, mode, units) { onOpenDay(f, it) }
+                        // Quellenangaben stehen in den Einstellungen unter „Über“ (Kevin am 11.11.2026: hier unten störte der Text)
                         de.schee.wetter.ui.tiles.TilesSection(tileData, tileState, editTiles, onEdit = onEdit, onOpenMap = onOpenRadar)
-                        Text(
-                            "Wetterdaten: Open-Meteo.com · ICON-D2 (Deutscher Wetterdienst) und ECMWF\nWarnungen, Radar und Karten: Deutscher Wetterdienst",
-                            style = WType.label.copy(color = WColors.Label), textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        )
                     }
                 }
                 Spacer(Modifier.height(96.dp))

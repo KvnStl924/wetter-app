@@ -385,8 +385,8 @@ fun RadarMap(
             m.uiSettings.apply {
                 isRotateGesturesEnabled = false; isTiltGesturesEnabled = false; isCompassEnabled = false
                 isLogoEnabled = false
-                isAttributionEnabled = !mini
-                setAttributionMargins(24, 0, 0, (context.resources.displayMetrics.density * 210).toInt())
+                // Kein „i“-Knopf (Kevin am 11.11.2026) – die Pflicht-Quellenangabe steht klein und blass im Vollbild-Radar
+                isAttributionEnabled = false
                 if (mini) setAllGesturesEnabled(false)
             }
             m.setMinZoomPreference(1.5); m.setMaxZoomPreference(11.5)

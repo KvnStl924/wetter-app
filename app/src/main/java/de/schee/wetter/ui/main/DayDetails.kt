@@ -141,8 +141,9 @@ fun DayDetails(f: Forecast, d: Day, today: LocalDate, units: Units, now: LocalDa
                 val m = Duration.between(rise, set).toMinutes()
                 Stat("Sonne", "${Timeline.hhmm(rise)} – ${Timeline.hhmm(set)}", "${m / 60} Std. ${m % 60} Min. Tageslicht", Modifier.weight(1f).fillMaxHeight()) { WeatherIcon(IconKind.SUNRISE, size = 15.dp) }
             }
-            val icon = d.model == "ICON"
-            Stat("Datenquelle", if (icon) "ICON-D2" else "ECMWF", if (icon) "Deutscher Wetterdienst" else "Europäisches Modell", Modifier.weight(1f).fillMaxHeight()) {}
+            // Statt der Datenquelle (Kevin am 11.11.2026: „was Sinnvolleres“): die längste trockene Zeit des Tages
+            val dry = dryStretch(hours)
+            Stat("Trocken", dry.first, dry.second, Modifier.weight(1f).fillMaxHeight()) { DropGlyph(WColors.Label) }
         }
 
         // ---- Sicherheit der Vorhersage
@@ -235,6 +236,31 @@ private fun RainBars(hours: List<Hour>) {
     }
 }
 
+/**
+ * Längste trockene Zeit des Tages (Regenwahrscheinlichkeit unter 30 % und kein Niederschlag):
+ * Wert (z. B. „6–11 Uhr“) und Zeile darunter.
+ */
+internal fun dryStretch(hours: List<Hour>): Pair<String, String> {
+    if (hours.isEmpty()) return "–" to "keine Stundenwerte"
+    fun dry(h: Hour) = (h.precipProb ?: 0) < 30 && h.precip < 0.1
+    var best = -1; var bestLen = 0; var i = 0
+    while (i < hours.size) {
+        if (!dry(hours[i])) { i++; continue }
+        var j = i
+        while (j + 1 < hours.size && dry(hours[j + 1])) j++
+        if (j - i + 1 > bestLen) { bestLen = j - i + 1; best = i }
+        i = j + 1
+    }
+    return when {
+        bestLen == 0 -> "Keine Pause" to "Regen den ganzen Tag möglich"
+        bestLen == hours.size -> "Ganzer Tag" to "kein Regen erwartet"
+        else -> {
+            val from = hours[best].time.hour; val to = hours[best + bestLen - 1].time.hour + 1
+            "$from–$to Uhr" to "ohne Regen · $bestLen Std."
+        }
+    }
+}
+
 @Composable
 private fun Stat(label: String, value: String, sub: String?, modifier: Modifier, glyph: @Composable () -> Unit) {
     Column(modifier.clip(GroupShape).background(GroupBg).padding(horizontal = 14.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -306,8 +332,5 @@ fun ConfidenceBlock(c: Confidence, units: Units) {
         val lo = units.tNum(c.tMaxLow); val hi = units.tNum(c.tMaxHigh)
         Text(rain + " " + (if (lo == hi) "Höchstwert überall $lo°." else "Höchstwert je nach Modell $lo° bis $hi°."),
             style = statSub.copy(fontSize = 14.sp, lineHeight = 20.sp), modifier = Modifier.padding(top = 6.dp))
-        Box(Modifier.fillMaxWidth().padding(vertical = 10.dp).height(1.dp).background(Hairline))
-        Text("Verglichen: ICON (DWD), ECMWF, GFS (USA), UKMO (Großbritannien), Météo-France, GEM (Kanada)",
-            style = statSub.copy(fontSize = 12.sp, lineHeight = 17.sp, color = WColors.Label))
     }
 }

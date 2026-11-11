@@ -106,8 +106,6 @@ fun RadarContent(d: TileData) {
         // Live-Karte mit aktuellem Radar (DWD, weltweit RainViewer) um den Ort
         de.schee.wetter.ui.radar.MiniRadar(de.schee.wetter.ui.radar.RadarPlace("", d.lat, d.lon, d.units.t(d.f.current.temp)), wind = false,
             Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0B1220)))
-        val rainNow = (d.maps?.radar?.let { de.schee.wetter.data.RadarData.hasRain(it) } ?: false)
-        Text(if (rainNow) "Aktuell Niederschlag in der Umgebung · Tippen für Vollbild" else "Kein Niederschlag in der Umgebung · Tippen für Vollbild", style = WType.bodyDim)
         return
     }
     Box(Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0B1220))) {
@@ -116,8 +114,6 @@ fun RadarContent(d: TileData) {
         LocationDot(Modifier.align(Alignment.Center), d.units.t(d.f.current.temp))
         if (d.maps == null) Text("Radar wird geladen …", style = WType.bodyDim, modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp))
     }
-    val rainNow = (d.maps?.radar?.let { de.schee.wetter.data.RadarData.hasRain(it) } ?: false)
-    Text(if (rainNow) "Aktuell Niederschlag in der Umgebung · DWD-Radar" else "Kein Niederschlag in der Umgebung · DWD-Radar", style = WType.bodyDim)
 }
 
 @Composable
@@ -177,7 +173,6 @@ fun Rain2hContent(d: TileData) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         listOf("Jetzt", "30 Min.", "60 Min.", "90 Min.", "2 Std.").forEach { Text(it, style = WType.label.copy(color = WColors.Label)) }
     }
-    Text(if (nc != null) "Quelle: DWD-Radar, alle 5 Minuten" else "Quelle: Modell ICON-D2, alle 15 Minuten", style = WType.label.copy(color = WColors.Label))
 }
 
 /** Weiche Regenkurve wie bei iOS: drei gestrichelte Linien (leicht · mäßig · stark), Fläche mit Verlauf. */
@@ -280,7 +275,6 @@ fun WindMapContent(d: TileData) {
         val c0 = d.f.current
         de.schee.wetter.ui.radar.MiniRadar(de.schee.wetter.ui.radar.RadarPlace("", d.lat, d.lon, d.units.t(c0.temp)), wind = true,
             Modifier.fillMaxWidth().aspectRatio(1.35f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0A2340)))
-        Text("Wind aus ${Units.compass(c0.windDir)} mit ${d.units.w(c0.wind)}, Böen bis ${d.units.w(c0.gusts)} · Tippen für Vollbild", style = WType.bodyDim)
         return
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -313,7 +307,6 @@ fun WindMapContent(d: TileData) {
         }
         LocationDot(Modifier.align(Alignment.Center), d.units.wNum(c.wind).toString())
     }
-    Text("Wind aus ${Units.compass(c.windDir)} mit ${d.units.w(c.wind)}, Böen bis ${d.units.w(c.gusts)} · Tippen für die große Karte", style = WType.bodyDim)
 }
 
 // ------------------------------------------------------------ Halbe Kacheln

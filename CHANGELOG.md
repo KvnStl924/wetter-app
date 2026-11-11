@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.1.1 – Aufgeräumt: Hinweistexte weg
+- Weg: Texte unter Regenradar, Windkarte und „Regen nächste 2 Std.“, die Überschrift „10-Tage-Vorhersage“, die Überschrift der Mond-Kachel, der Knopf „Kacheln bearbeiten“ (Bearbeiten weiter mit langem Drücken auf eine Kachel) und die Quellenzeilen unten auf der Hauptseite
+- Quellenangaben stehen vollständig in den Einstellungen unter „Über“; im Vollbild-Radar statt „i“-Knopf eine kleine, blasse Zeile (Pflicht der Kartenlizenz)
+- Tagesseite: Kachel „Datenquelle“ ersetzt durch „Trocken“ – die längste Zeit des Tages ohne Regen; Zeile „Verglichen: …“ unter der Sicherheit weg
+
 ## 3.1.0 – Tagesseite neu gestaltet
 - Die Seite eines Tages (Tippen in der 10-Tage-Liste) ist neu gestaltet, im Stil von iOS: großer Kopf mit Höchst- und Tiefstwert, Wetterlage und Symbol
 - Neu: Temperaturverlauf als Kurve in Temperaturfarben mit Wetter-Symbolen alle 3 Stunden, Höchst- und Tiefstwert markiert, bei „Heute“ die laufende Stunde; darunter die Regenwahrscheinlichkeit je Stunde als Balken

@@ -108,7 +108,8 @@ fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean)
             Row(rowMod, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { id ->
                     val m = if (row.size == 2) Modifier.weight(1f).fillMaxHeight() else Modifier.fillMaxWidth()
-                    TileFrame(when (id) { TileId.MOON -> moonTitle(d); TileId.SUN -> sunTitle(d); TileId.AVERAGE -> "Durchschnitt"; else -> id.title }, m,
+                    // Mond ohne Überschrift (Kevin am 11.11.2026: „Zunehmende Sichel“ oben weg)
+                    TileFrame(when (id) { TileId.MOON -> null; TileId.SUN -> sunTitle(d); TileId.AVERAGE -> "Durchschnitt"; else -> id.title }, m,
                         onClick = {
                             AppLog.tap("Kachel ${id.title} angetippt")
                             when (id) {
@@ -122,10 +123,7 @@ fun TilesSection(d: TileData, state: TileState, edit: Boolean, onEdit: (Boolean)
                 }
             }
         }
-        Text(
-            "Kacheln bearbeiten", style = WType.small.copy(color = WColors.Accent), textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { AppLog.tap("Text „Kacheln bearbeiten“"); onEdit(true) }.padding(10.dp),
-        )
+        // Kein Knopf „Kacheln bearbeiten“ mehr (Kevin am 11.11.2026) – Bearbeiten startet mit langem Drücken auf eine Kachel
     }
 }
 
@@ -151,7 +149,7 @@ private fun TileBody(id: TileId, d: TileData) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TileFrame(
-    title: String, modifier: Modifier, border: Color = WColors.CardBorder,
+    title: String?, modifier: Modifier, border: Color = WColors.CardBorder,
     onClick: () -> Unit, onLongClick: () -> Unit, content: @Composable () -> Unit,
 ) {
     val haptic = de.schee.wetter.ui.rememberHaptics()
@@ -164,7 +162,7 @@ fun TileFrame(
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(title.uppercase(), style = WType.label)
+        if (title != null) Text(title.uppercase(), style = WType.label)
         content()
     }
 }

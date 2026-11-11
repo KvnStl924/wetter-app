@@ -181,7 +181,7 @@ fun DailyCard(f: Forecast, today: LocalDate, mode: Mode, units: Units, onDay: (D
     val gMin = days.minOf { it.tMin }; val gMax = days.maxOf { it.tMax }
     val maxWind = days.maxOf { it.gustMax ?: it.windMax }
     val maxRain = max(1.0, days.maxOf { it.precipSum })
-    Tile("10-Tage-Vorhersage") {
+    Tile(null) {
         days.forEachIndexed { i, d ->
             if (i > 0) HorizontalDivider(color = WColors.CardBorder)
             Row(

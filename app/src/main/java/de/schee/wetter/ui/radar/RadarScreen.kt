@@ -367,6 +367,16 @@ fun RadarScreen(
                     AppLog.tap("Vollbild-Radar → Warnungen ${if (warnings) "an" else "aus"}")
                 }) { WarnGlyph() }
             }
+            // Pflicht-Quellenangabe der Karte (OpenStreetMap-Lizenz) und der Bilder – klein und blass statt „i“-Knopf
+            Text(
+                buildString {
+                    append("© OpenStreetMap · OpenFreeMap")
+                    if (layer == RadarLayer.RAIN) append(" · RainViewer")
+                    if (layer == RadarLayer.CLOUDS || lightning) append(" · © EUMETSAT")
+                },
+                style = WType.label.copy(fontSize = 9.sp, letterSpacing = 0.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal, color = Color.White.copy(alpha = .38f)),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = panelH + 3.dp),
+            )
             // Angetippter Punkt: Karte im iOS-Stil über dem Bedienfeld, links neben den Knöpfen (verschiebt sie nicht)
             Column(Modifier.align(Alignment.BottomStart).padding(bottom = panelH + 10.dp, end = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.animation.AnimatedVisibility(picked != null,
