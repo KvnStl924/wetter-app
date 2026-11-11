@@ -95,7 +95,6 @@ fun WarningContent(d: TileData, expanded: Boolean, onMap: () -> Unit = {}) {
     }
     if (expanded) Text("Warngebiet auf der Karte zeigen ›", style = WType.small.copy(color = WColors.Accent),
         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { de.schee.wetter.log.AppLog.tap("Kachel Unwetterwarnung → Warngebiet auf der Karte"); onMap() }.padding(vertical = 4.dp))
-    Text(if (expanded) "Quelle: Deutscher Wetterdienst" else "Tippen für Details · Quelle: DWD", style = WType.label.copy(color = WColors.Label))
 }
 
 // ------------------------------------------------------------ Regenradar

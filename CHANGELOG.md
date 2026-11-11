@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.1.2 – Unwetterwarnung ohne Hinweiszeile
+- Zeile „Tippen für Details · Quelle: DWD“ unter der Unwetterwarnung entfernt (Quelle steht in den Einstellungen unter „Über“)
+
 ## 3.1.1 – Aufgeräumt: Hinweistexte weg
 - Weg: Texte unter Regenradar, Windkarte und „Regen nächste 2 Std.“, die Überschrift „10-Tage-Vorhersage“, die Überschrift der Mond-Kachel, der Knopf „Kacheln bearbeiten“ (Bearbeiten weiter mit langem Drücken auf eine Kachel) und die Quellenzeilen unten auf der Hauptseite
 - Quellenangaben stehen vollständig in den Einstellungen unter „Über“; im Vollbild-Radar statt „i“-Knopf eine kleine, blasse Zeile (Pflicht der Kartenlizenz)
