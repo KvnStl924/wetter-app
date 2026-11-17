@@ -44,6 +44,57 @@ object RadarData {
             return covered[y * w + x]
         }
 
+        /**
+         * Abstand zum Rand des Messgebiets in km je Zelle: innen positiv, außen negativ (Kevin am 17.11.2026: die
+         * Kante war treppig, und am Rand misst der DWD schwächer). Zwischen den Zellen wird weich gerechnet → glatte
+         * Kante statt Treppen; darüber läuft ein Übergang von [BAND_KM] km zum weltweiten Radar.
+         */
+        private val signedKm: FloatArray by lazy {
+            val cellX = (EAST - WEST) / w * 111.32 * kotlin.math.cos(Math.toRadians((SOUTH + NORTH) / 2))
+            val cellY = (NORTH - SOUTH) / h * 111.32
+            fun dist(inside: Boolean): FloatArray {
+                // Abstand jeder Zelle zur nächsten Zelle der anderen Art (außerhalb des Rasters zählt als „keine Messung“)
+                val inf = 1e9f
+                val d = FloatArray(w * h) { if (covered[it] == inside) inf else 0f }
+                val dx = cellX.toFloat(); val dy = cellY.toFloat(); val dd = kotlin.math.hypot(cellX, cellY).toFloat()
+                fun border(x: Int, y: Int) = if (inside) minOf(minOf(x + 1, w - x) * dx, minOf(y + 1, h - y) * dy) else inf
+                for (y in 0 until h) for (x in 0 until w) {
+                    val i = y * w + x
+                    var v = minOf(d[i], border(x, y))
+                    if (x > 0) v = minOf(v, d[i - 1] + dx)
+                    if (y > 0) { v = minOf(v, d[i - w] + dy); if (x > 0) v = minOf(v, d[i - w - 1] + dd); if (x < w - 1) v = minOf(v, d[i - w + 1] + dd) }
+                    d[i] = v
+                }
+                for (y in h - 1 downTo 0) for (x in w - 1 downTo 0) {
+                    val i = y * w + x
+                    var v = d[i]
+                    if (x < w - 1) v = minOf(v, d[i + 1] + dx)
+                    if (y < h - 1) { v = minOf(v, d[i + w] + dy); if (x < w - 1) v = minOf(v, d[i + w + 1] + dd); if (x > 0) v = minOf(v, d[i + w - 1] + dd) }
+                    d[i] = v
+                }
+                return d
+            }
+            val din = dist(true); val dout = dist(false)
+            val half = (minOf(cellX, cellY) / 2).toFloat()
+            FloatArray(w * h) { if (covered[it]) din[it] - half else -(dout[it] - half) }
+        }
+
+        /**
+         * Wie stark das DWD-Radar an einer Stelle zählt: 0 außerhalb des Messgebiets, steigt am Rand über [BAND_KM] km
+         * weich auf 1 an. Das weltweite Radar bekommt dort den Rest (1 − Wert) – so überlappen beide am Rand.
+         */
+        fun weight(lat: Double, lon: Double): Float {
+            if (lon < WEST || lon > EAST || lat < SOUTH || lat > NORTH) return 0f
+            val fx = ((lon - WEST) / (EAST - WEST) * w - .5).coerceIn(0.0, w - 1.0)
+            val fy = ((mercY(NORTH) - mercY(lat)) / (mercY(NORTH) - mercY(SOUTH)) * h - .5).coerceIn(0.0, h - 1.0)
+            val x0 = fx.toInt().coerceAtMost(w - 2).coerceAtLeast(0); val y0 = fy.toInt().coerceAtMost(h - 2).coerceAtLeast(0)
+            val tx = (fx - x0).toFloat(); val ty = (fy - y0).toFloat()
+            val s = signedKm
+            val v = (s[y0 * w + x0] * (1 - tx) + s[y0 * w + x0 + 1] * tx) * (1 - ty) + (s[(y0 + 1) * w + x0] * (1 - tx) + s[(y0 + 1) * w + x0 + 1] * tx) * ty
+            val k = (v / BAND_KM).coerceIn(0f, 1f)
+            return k * k * (3 - 2 * k)
+        }
+
         companion object {
             /** Aus den Bildpunkten eines DWD-Radarbilds: grau und fast durchsichtig (126,126,126, Deckkraft 77) = keine Messung. */
             fun of(px: IntArray, w: Int, h: Int, step: Int = 4): Coverage {
@@ -57,6 +108,9 @@ object RadarData {
             }
         }
     }
+
+    /** Breite des Übergangs am Rand des DWD-Messgebiets (km), in dem DWD- und weltweites Radar ineinander übergehen. */
+    const val BAND_KM = 25f
 
     /** Messgebiet des jüngsten Radarbilds (für [TileMask]; null = unbekannt → der ganze Ausschnitt zählt als Messgebiet). */
     @Volatile var coverage: Coverage? = null
@@ -122,10 +176,13 @@ object RadarData {
 
     fun isPng(bytes: ByteArray) = bytes.size > 8 && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte()
 
-    /** [temp] = Temperatur am Boden (°C) für Schnee; null = alles als Regen. */
-    fun render(bytes: ByteArray, kind: Kind, temp: WorldGrid? = null): Bitmap? {
+    /**
+     * [temp] = Temperatur am Boden (°C) für Schnee; null = alles als Regen.
+     * [fade] = Messgebiet: am Rand weich ausblenden (Übergang zum weltweiten Radar); null = nicht ausblenden.
+     */
+    fun render(bytes: ByteArray, kind: Kind, temp: WorldGrid? = null, fade: Coverage? = null): Bitmap? {
         val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        return crisp(raw, if (kind == Kind.MODEL) MODEL_SCALE else RADAR_SCALE, temp = temp)
+        return crisp(raw, if (kind == Kind.MODEL) MODEL_SCALE else RADAR_SCALE, temp = temp, fade = fade)
     }
 
     /** Breite zu einer Mercator-Höhe (Meter, wie [mercY]). */
@@ -155,7 +212,7 @@ object RadarData {
      * So bleiben die Übergänge zwischen leicht/mäßig/stark weich, die Ränder des Regengebiets aber glatt und klar –
      * ohne Treppen der 1-km-Messpunkte und ohne grauen Schleier.
      */
-    fun crisp(src: Bitmap, scale: Map<Int, Double>, up: Int = UPSCALE, temp: WorldGrid? = null): Bitmap {
+    fun crisp(src: Bitmap, scale: Map<Int, Double>, up: Int = UPSCALE, temp: WorldGrid? = null, fade: Coverage? = null): Bitmap {
         val w = src.width; val h = src.height; val n = w * h
         val px = IntArray(n); src.getPixels(px, 0, w, 0, 0, w, h)
         // 1. Farbe → Regenmenge (log) und „hier regnet es“ (0/1)
@@ -192,6 +249,9 @@ object RadarData {
                 t.value(lat, lon) <= SNOW_C
             }
         }
+        // Breite je Zeile und Länge je Spalte (für den weichen Rand)
+        val rowLat = fade?.let { DoubleArray(oh) { oy -> latOfMerc(mercY(NORTH) - (oy + .5) / oh * (mercY(NORTH) - mercY(SOUTH))) } }
+        val colLon = fade?.let { DoubleArray(ow) { ox -> WEST + (ox + .5) / ow * (EAST - WEST) } }
         val inv = 1f / up
         for (oy in 0 until oh) {
             val fy = ((oy + .5f) * inv - .5f).coerceIn(0f, h - 1.001f)
@@ -205,7 +265,9 @@ object RadarData {
                 if (cov < .12f) continue
                 val vv = (v[r0 + x0] * (1 - tx) + v[r0 + x1] * tx) * (1 - ty) + (v[r1 + x0] * (1 - tx) + v[r1 + x1] * tx) * ty
                 val lv = vv / cov   // mittlere Menge dort, wo es regnet
-                val k = ((cov - .12f) / .36f).coerceIn(0f, 1f); val edge = k * k * (3 - 2 * k)
+                val k = ((cov - .12f) / .36f).coerceIn(0f, 1f)
+                val edge = k * k * (3 - 2 * k) * (if (fade != null) fade.weight(rowLat!![oy], colLon!![ox]) else 1f)
+                if (edge <= 0f) continue
                 val snowHere = snowMask != null && snowMask[(oy / sStep) * sw + ox / sStep]
                 val col = (if (snowHere) SNOW_LUT else LUT)[(lv / LOG_MAX * 255).toInt().coerceIn(0, 255)]
                 out[oy * ow + ox] = (((col ushr 24) * edge).toInt() shl 24) or (col and 0xFFFFFF)

@@ -528,8 +528,8 @@ fun RadarMap(
         val s = style ?: return@LaunchedEffect
         rainViewer.forEachIndexed { i, f ->
             if (s.getSource("rv-$i") != null) return@forEachIndexed
-            // im Messgebiet des DWD nur das DWD-Radar (sonst doppelt übereinander, z. B. Ringe dänischer Radare über Kiel)
-            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", de.schee.wetter.data.TileMask.markedIfKnown(f.tiles)).apply {
+            // Bis „Jetzt“ zeigt die Karte überall nur das weltweite Radar (Kevin am 17.11.2026) – ungeschnitten
+            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", f.tiles).apply {
                 maxZoom = 7f; attribution = "<a href=\"https://www.rainviewer.com/\">Radar weltweit: RainViewer</a>"
             }
             s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 512))

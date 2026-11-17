@@ -236,11 +236,17 @@ fun RadarScreen(
     val bytes = ui.bytes[index]
     // Temperatur am Boden zur Stunde des Bilds (für Schnee), sonst die aktuelle
     val frameTemp = ui.frames.getOrNull(index)?.let { f -> ui.world[de.schee.wetter.data.DwdWorld.hourOf(f.time)]?.temp } ?: ui.worldNow?.temp
-    LaunchedEffect(index, bytes, showRain, frameTemp) {
+    // Bis „Jetzt“ überall das weltweite Radar (RainViewer) – ein einheitliches Bild ohne Kanten (Kevin am 17.11.2026);
+    // das DWD-Bild nur, wenn es zu dem Zeitpunkt kein weltweites gibt. In der Zukunft die DWD-Vorhersage, am Rand des
+    // Messgebiets weich ins weltweite Radar übergehend.
+    val rvAvailable = ui.frames.getOrNull(index)?.let { f -> f.minutes <= 0 && de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, f.time) != null } == true
+    LaunchedEffect(index, bytes, showRain, frameTemp, rvAvailable, ui.coverage) {
         if (!showRain) return@LaunchedEffect
+        if (rvAvailable) { shown = null; return@LaunchedEffect }
         val b = bytes ?: return@LaunchedEffect
         val kind = ui.frames.getOrNull(index)?.kind ?: return@LaunchedEffect
-        shown = withContext(Dispatchers.Default) { RadarData.render(b, kind, frameTemp) }
+        val fade = if (kind == RadarData.Kind.FORECAST) ui.coverage else null
+        shown = withContext(Dispatchers.Default) { RadarData.render(b, kind, frameTemp, fade) }
     }
 
     // Abspielen: nur solange der Bildschirm sichtbar ist.
@@ -624,7 +630,7 @@ fun worldRainBitmap(g: WorldGrid, cover: RadarData.Coverage? = null, size: Int =
             val lon = Satellite.lonOfCol(x + 0.5, size)
             val mm = g.value(lat, lon)
             if (!(mm >= RAIN_MIN)) continue
-            val keep = if (cover != null) (if (cover.at(lat, lon)) 0.0 else 1.0)
+            val keep = if (cover != null) 1.0 - cover.weight(lat, lon)
             else (1 - minOf(lat - RadarData.SOUTH, RadarData.NORTH - lat, lon - RadarData.WEST, RadarData.EAST - lon) / 0.5).coerceIn(0.0, 1.0)
             if (keep == 0.0) continue
             // Farben und Deckkraft wie das Radar (RainViewer-Schema) – überall dasselbe Bild
@@ -1109,7 +1115,8 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, abroad: Bool
                         else -> "DWD · weltweit gerade keine Vorhersage"
                     }
                 }
-                else "DWD · weltweit RainViewer",
+                else if (f != null && de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, f.time) != null) "Radar · RainViewer"
+                else "DWD-Radar",
                 style = WType.bodyDim,
             )
         }
@@ -1343,13 +1350,15 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
     var shown by remember { mutableStateOf<Bitmap?>(null) }
     val nowBytes = ui.bytes[ui.nowIndex]
     val nowTemp = ui.worldNow?.temp
-    LaunchedEffect(nowBytes, wind, nowTemp) {
+    // wie im Vollbild: jetzt überall das weltweite Radar; das DWD-Bild nur ohne weltweites
+    val rvIndex = ui.frames.getOrNull(ui.nowIndex)?.let { de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, it.time) }
+        ?: ui.rainViewer.lastIndex.takeIf { it >= 0 && ui.frames.isEmpty() }
+    LaunchedEffect(nowBytes, wind, nowTemp, rvIndex != null) {
         if (wind) return@LaunchedEffect
+        if (rvIndex != null) { shown = null; return@LaunchedEffect }
         val b = nowBytes ?: return@LaunchedEffect
         shown = withContext(Dispatchers.Default) { RadarData.render(b, RadarData.Kind.RADAR, nowTemp) }
     }
-    val rvIndex = ui.frames.getOrNull(ui.nowIndex)?.let { de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, it.time) }
-        ?: ui.rainViewer.lastIndex.takeIf { it >= 0 && ui.frames.isEmpty() }
     val ww = ui.worldNow
     var field by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(wind, ww) {

@@ -178,7 +178,12 @@ object TileMask : Interceptor {
                 if (px[i] ushr 24 == 0) continue
                 val lon = lonOf(z, x + (pxl + 0.5) / size)
                 if (lon < RadarData.WEST || lon > RadarData.EAST) continue
-                if (cov == null || cov.at(lat, lon)) { px[i] = 0; changed = true }
+                // weicher Rand: im Übergang (BAND_KM) nur teilweise durchsichtig – dort liegt das DWD-Bild halb darüber
+                val w = if (cov == null) 1f else cov.weight(lat, lon)
+                if (w <= 0f) continue
+                val a = ((px[i] ushr 24) * (1 - w)).toInt()
+                px[i] = if (a == 0) 0 else (a shl 24) or (px[i] and 0xFFFFFF)
+                changed = true
             }
         }
         return changed

@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.4.0 – Radar aus einem Guss
+- Bis „Jetzt“ zeigt die Karte überall nur noch das weltweite Radar (RainViewer, in Deutschland mit den Messungen des DWD) – ein einheitliches Bild ohne Kanten und Streifen an den Grenzen, auch auf der Radar-Kachel der Hauptseite. Gibt es zu einem Zeitpunkt kein weltweites Bild, springt das DWD-Bild ein
+- Die DWD-Daten laufen weiter im Hintergrund: Regen-Vorhersage der nächsten 2 Stunden, „Regen in … Min.“, Regenkurve und Zugrichtung bleiben so genau wie bisher
+- Vorhersage: Am Rand des DWD-Messgebiets gehen DWD-Vorhersage und weltweites Radar über 25 km weich ineinander über (vorher harte Kante, am Rand oft ein dunkler Streifen); die Grenze ist glatt statt treppig
+
 ## 3.3.0 – Radar überall gleich, mit Schnee
 - Deutschland und der Rest der Welt sehen im Radar jetzt gleich aus: Das DWD-Radar und das Regenmodell nutzen dieselben Farben und dieselbe Deckkraft wie das weltweite Radar (RainViewer, Farbschema „Universal Blue“): sehr schwacher Niederschlag beige, dann hell- bis dunkelblau, gelb/orange, rot, rosa
 - Im Messgebiet des DWD liegt das weltweite Radar nicht mehr zusätzlich darunter (vorher doppelte Farben und z. B. Ringe dänischer Radare über Kiel)
