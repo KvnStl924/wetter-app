@@ -124,24 +124,21 @@ object Countries {
     }
 
     /**
-     * Höchste und tiefste Temperatur des Landes (zur gezeigten Stunde), null ohne Werte.
-     * Nur aus Städten (Kevin am 17.11.2026: Frankreich und Italien zeigten 1° – Gipfelwerte aus den Alpen, nicht
-     * das, was man im Land erlebt): erst Städte ab 15 000 Einwohnern – die liegen fast alle unter 1000 m –, bei zu
-     * wenigen ab 2000, dann alle Orte, zuletzt die Fläche.
+     * Höchste und tiefste Temperatur des Landes (zur gezeigten Stunde) über die ganze Fläche (Raster 0,2°) und alle
+     * Orte, null ohne Werte. In 3.5.0 nur aus Städten – dann passten die Werte nicht zur Karte (Kevin am 17.11.2026:
+     * Grönland zeigte −8°, das Inlandeis auf der Karte −43°). Wo der Wert herrscht, zeigt das Antippen.
      */
     fun extremes(c: Index, k: Int, places: Places.Index, ww: WorldWeather): Extremes? {
         var max = Double.NEGATIVE_INFINITY; var min = Double.POSITIVE_INFINITY
         var maxAt = 0.0 to 0.0; var minAt = 0.0 to 0.0
-        // Ort merken: Antippen von Höchst- oder Tiefstwert springt dorthin (Kevin am 17.11.2026)
+        // Ort merken: Antippen von Höchst- oder Tiefstwert springt dorthin
         fun take(t: Double, lat: Double, lon: Double) {
             if (t.isNaN()) return
             if (t > max) { max = t; maxAt = lat to lon }
             if (t < min) { min = t; minAt = lat to lon }
         }
-        val m = c.members[k]
-        val use = listOf(15_000, 2_000, 0).map { p -> m.filter { places.pop[it] >= p } }.firstOrNull { it.size >= 3 } ?: m.toList()
-        for (i in use) { val la = places.lat[i].toDouble(); val lo = places.lon[i].toDouble(); take(ww.tempAt(la, lo), la, lo) }
-        if (max == Double.NEGATIVE_INFINITY) for (cell in c.cells[k]) { val la = c.cellLat(cell); val lo = c.cellLon(cell); take(ww.tempAt(la, lo), la, lo) }
+        for (cell in c.cells[k]) { val la = c.cellLat(cell); val lo = c.cellLon(cell); take(ww.tempAt(la, lo), la, lo) }
+        for (i in c.members[k]) { val la = places.lat[i].toDouble(); val lo = places.lon[i].toDouble(); take(ww.tempAt(la, lo), la, lo) }
         return if (max == Double.NEGATIVE_INFINITY) null else Extremes(max, maxAt.first, maxAt.second, min, minAt.first, minAt.second)
     }
 

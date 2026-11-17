@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.6.1 – Max/Min passen wieder zur Karte
+- Max/Min je Land wieder aus der ganzen Landesfläche (Raster 0,2°) und allen Orten statt nur aus Städten: In 3.5.0/3.6.0 zeigte z. B. Grönland −8°, die Karte im Inlandeis aber −43°. Wo ein Wert herrscht, zeigt jetzt das Antippen
+- Die Punkt-Karte nach dem Antippen zeigt die Temperatur der gewählten Stunde (vorher immer die von jetzt)
+
 ## 3.6.0 – Max/Min antippen: hin zum wärmsten bzw. kältesten Ort
 - In der Max/Min-Ansicht der Karte: Tippen auf den Höchstwert (linke Hälfte, ▲) oder den Tiefstwert (rechte Hälfte, ▼) eines Landes fliegt die Karte zu der Stelle, wo dieser Wert herrscht, und zeigt sie wie einen angetippten Punkt (Ortsname, Temperatur, Wind)
 

@@ -218,7 +218,8 @@ fun RadarScreen(
 
     // Angetippter Punkt: Name, Temperatur, Wind und – in Deutschland – Regen in den nächsten 2 Stunden
     fun tapped(lat: Double, lon: Double, long: Boolean) {
-        val ww0 = ui.worldNow
+        // Werte der gewählten Stunde – wie die Beschriftungen der Karte (sonst passten Max/Min und Punkt nicht zusammen)
+        val ww0 = ui.worldHours.getOrNull(hour)?.let { ui.world[it] } ?: ui.worldNow
         val idx = de.schee.wetter.data.Places.index.value
         val name = idx?.let { ix ->
             de.schee.wetter.data.Places.inView(ix, lat - .12, lat + .12, lon - .18, lon + .18, limit = 400)
