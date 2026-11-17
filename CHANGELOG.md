@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.5.1 – Städte bleiben beim Verschieben stehen
+- Welche Orte, Länder (Max/Min) und Kälte-/Wärmepunkte beschriftet werden, hängt nur noch von der Zoomstufe ab, nicht davon, wo der Ausschnitt liegt. Beim Verschieben verschwinden keine Städte mehr und es tauchen keine neuen dazwischen auf
+- Orte am Bildrand oder unter den Bedienelementen werden nicht mehr ausgeblendet, sondern dürfen angeschnitten sein
+- Kleine Zoom-Änderungen (unter einer halben Stufe) ändern die Auswahl nicht
+
 ## 3.5.0 – Karte übersichtlicher: Grenzen, Relief, Flüsse, Orts-Marken
 - Ländergrenzen hell mit dunklem Schatten – auf jeder Temperaturfarbe gut zu sehen; Bundesländer zart gestrichelt
 - Gelände-Relief: Gebirge und Täler als leichter Schatten über der Temperatur (Höhendaten: Terrain Tiles, Mapzen/AWS)

@@ -223,4 +223,14 @@ class RadarTest {
         assertEquals(9, urls.size)
         assertTrue("https://t/7/66/42.pbf" in urls && "https://t/7/65/41.pbf" in urls && "https://t/7/67/43.pbf" in urls)
     }
+
+    /** Städte bleiben beim leichten Verschieben dieselben (Kevin am 17.11.2026: „auf einmal zwei dazu, eine weg“). */
+    @Test fun labelsStableWhenPanning() {
+        fun t(dx: Double) = de.schee.wetter.ui.radar.MapTransform(2.0 + dx, 16.0 + dx, 55.0, 46.0, 1080f, 2340f)
+        fun pick(dx: Double) = de.schee.wetter.ui.radar.pickLabels(t(dx), emptyList(), null, true, null, null, false, false, 2.75f, null)
+            .filter { it.lon in 6.0..12.0 && it.lat in 48.0..53.0 }.map { it.name }.toSet()
+        val a = pick(0.0)
+        assertTrue(a.isNotEmpty())
+        for (dx in listOf(0.3, -0.5, 1.0)) assertEquals(a, pick(dx))
+    }
 }

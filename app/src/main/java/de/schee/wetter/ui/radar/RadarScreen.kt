@@ -911,6 +911,15 @@ internal class CountryStyle(val text: Float, val pill: Float)
 internal val COUNTRY_BIG = CountryStyle(11f, .9f)
 internal val COUNTRY_SMALL = CountryStyle(9.5f, .78f)
 
+/**
+ * Welche Orte, Länder und Hotspots beschriftet werden.
+ *
+ * Fest an der Karte statt am Bildschirm (Kevin am 17.11.2026: „minimal verschoben – auf einmal zwei Städte dazu und
+ * eine verschwunden“): Die Auswahl hängt nur noch von der Zoomstufe ab (in halben Stufen), nicht davon, wo der
+ * Ausschnitt gerade liegt. Gerechnet wird in Weltkoordinaten über einem großzügig erweiterten Gebiet; Orte am Rand
+ * oder unter den Bedienelementen bleiben stehen (dürfen angeschnitten sein). Beim Verschieben kommen am Rand nur
+ * Orte dazu, die schon die ganze Zeit „da“ waren – nichts springt oder verschwindet.
+ */
 internal fun pickLabels(
     idle: MapTransform, cities: List<MapCity>, ww: WorldWeather?, temp: Boolean, place: RadarPlace?, fix: LocationSource.Fix?,
     mini: Boolean, hotspots: Boolean, density: Float, idx: Places.Index?, countries: Boolean = false,
@@ -918,13 +927,35 @@ internal fun pickLabels(
     val L = { lat: Double, lon: Double, name: String?, kind: Int -> LabelPick(lat, lon, name, kind) }
     run {
         val out = mutableListOf<LabelPick>()
-        // Platz jeder Beschriftung als Rechteck (Name oben, Pille unten) – nichts darf sich überlappen
+        // Zoomstufe der Karte (MapLibre: Welt = 512 dp · 2^Zoom), auf halbe Stufen abgerundet → kleine Zoom-Änderungen
+        // ändern die Auswahl nicht
+        val span = (idle.east - idle.west).coerceAtLeast(1e-6)
+        val zoom = kotlin.math.log2((idle.w / density) * 360.0 / span / 512.0)
+        val zq = kotlin.math.floor(zoom * 2) / 2
+        val world = 512.0 * density * Math.pow(2.0, zq)
+        fun wx(lon: Double) = ((lon + 180.0) / 360.0 * world).toFloat()
+        fun wy(lat: Double): Float {
+            val r = Math.toRadians(lat.coerceIn(-85.0, 85.0))
+            return ((1 - kotlin.math.ln(kotlin.math.tan(r) + 1 / kotlin.math.cos(r)) / PI) / 2 * world).toFloat()
+        }
+        fun latOfWy(y: Double) = Math.toDegrees(atan(kotlin.math.sinh(PI * (1 - 2 * y / world))))
+        // Suchgebiet: Ausschnitt plus die Hälfte in jede Richtung (dort entschiedene Orte sind beim Verschieben schon fest)
+        val padLat = (idle.north - idle.south) * .5; val padLon = span * .5
+        val south = (idle.south - padLat).coerceAtLeast(-84.0); val north = (idle.north + padLat).coerceAtMost(84.0)
+        val west = idle.west - padLon; val east = idle.east + padLon
+        fun inArea(lat: Double, lon: Double): Boolean {
+            if (lat < south || lat > north) return false
+            var lo = lon; while (lo < west) lo += 360; while (lo > east) lo -= 360
+            return lo >= west
+        }
+        // Breite des Ausschnitts in km zur abgerundeten Zoomstufe (für die Mindestgröße der Orte)
+        val midLat = ((idle.north + idle.south) / 2).coerceIn(-80.0, 80.0)
+        val widthKm = (idle.w / density) / (512.0 * Math.pow(2.0, zq)) * 360.0 * 111.2 * kotlin.math.cos(Math.toRadians(midLat))
+
+        // Platz jeder Beschriftung als Rechteck in Weltkoordinaten – nichts darf sich überlappen
         val boxes = ArrayList<FloatArray>()
-        // mehr Luft zwischen den Marken (vorher 4 dp – alles klebte aneinander)
         val gap = 10 * density
         fun overlaps(b: FloatArray) = boxes.any { o -> b[0] < o[2] + gap && b[2] > o[0] - gap && b[1] < o[3] + gap && b[3] > o[1] - gap }
-        fun inUi(b: FloatArray) = !mini && (b[1] < 84 * density || b[3] > idle.h - 234 * density || (b[2] > idle.w - 74 * density && b[3] > idle.h - 600 * density))
-        // Breite schätzen: Name (≈ 7 dp je Zeichen in 12,5 sp fett) bzw. Pille (≈ 46 dp)
         fun box(x: Float, y: Float, name: String?, kind: Int, pop: Int = 0): FloatArray {
             // Orte mit Wert: EINE Marke „Köln 12°“ über dem Punkt (Name und Wert nebeneinander)
             if (ww != null && (kind == 3 || kind == 0)) {
@@ -942,96 +973,96 @@ internal fun pickLabels(
             }
         }
         fun add(l: LabelPick): Boolean {
-            val x = idle.x(l.lon); val y = idle.y(l.lat)
-            if (!idle.visible(x, y)) return false
-            val b = box(x, y, l.name, l.kind, l.pop)
-            if (b[0] < 4 * density || b[2] > idle.w - 4 * density || inUi(b) || overlaps(b)) return false
+            if (!inArea(l.lat, l.lon)) return false
+            val b = box(wx(l.lon), wy(l.lat), l.name, l.kind, l.pop)
+            if (overlaps(b)) return false
             out += l; boxes += b; return true
         }
-        // Max/Min-Schalter: nur die Länder, die Beschriftung IMMER fest in der Landesmitte (Kevin am 10.11.2026) –
-        // nie verschoben; am Bildrand darf sie abgeschnitten sein. Wichtige (große) Länder zuerst; was sich mit
-        // einem schon gesetzten Land überschneidet, fällt weg → weit draußen nur die großen, beim Hineinzoomen mehr.
+        // Max/Min-Schalter: nur die Länder, die Beschriftung IMMER fest in der Landesmitte (Kevin am 10.11.2026);
+        // wichtige (große) Länder zuerst; was sich mit einem schon gesetzten Land überschneidet, fällt weg.
         val c = idx?.countries
         if (countries && c != null && ww != null && temp) {
             for (k in c.rankOrder) {
                 val la = c.anchorLat[k]; val lo = c.anchorLon[k]
-                if (la.isNaN()) continue
-                val x = idle.x(lo); val y = idle.y(la)
-                // Mitte muss im Bild liegen, nicht unter dem Bedienfeld unten
-                if (!idle.visible(x, y) || y > idle.h - 196 * density) continue
-                // erst zeigen, wenn das Land auf dem Bildschirm groß genug ist (Kantenlänge ≥ 30 dp):
-                // weit draußen nur die großen Länder, Kleinstaaten und Inseln beim Hineinzoomen
-                val kmPerPx = (idle.east - idle.west) * 111.2 * kotlin.math.cos(Math.toRadians(la)) / idle.w
+                if (la.isNaN() || !inArea(la, lo)) continue
+                // erst zeigen, wenn das Land groß genug ist (Kantenlänge ≥ 30 dp bei dieser Zoomstufe)
+                val kmPerPx = widthKm / idle.w
                 if (kotlin.math.sqrt(maxOf(c.area[k], 300.0)) / kmPerPx < 30 * density) continue
                 val small = c.small(k)
                 val name = c.name(k)
                 val s = if (small) COUNTRY_SMALL else COUNTRY_BIG
                 val nameW = name.length * 6.8f * s.text / 12.5f * density
                 val w = maxOf(nameW, 92f * s.pill * density)
+                val x = wx(lo); val y = wy(la)
                 val b = floatArrayOf(x - w / 2, y - (s.text * 1.35f + 3) * density, x + w / 2, y + (4 + 17 * s.pill) * density)
                 if (overlaps(b)) continue
                 out += LabelPick(la, lo, name, 4, k, small); boxes += b
-                if (out.size > 60) break
+                if (out.size > 200) break
             }
             return out
         }
         // eigener Ort zuerst (Name über, Wert unter dem blauen Punkt)
         place?.let { p ->
-            val x = idle.x(p.lon); val y = idle.y(p.lat)
-            if (idle.visible(x, y)) { out += L(p.lat, p.lon, null, 2); boxes += box(x, y, p.name.substringBefore(" · "), 2) }
+            if (inArea(p.lat, p.lon)) { out += L(p.lat, p.lon, null, 2); boxes += box(wx(p.lon), wy(p.lat), p.name.substringBefore(" · "), 2) }
         }
-        fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
+        fix?.let { f -> val x = wx(f.lon); val y = wy(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
         val ownName = place?.name?.substringBefore(" · ")
-        // Orte nach Größe (GeoNames): füllt den freien Platz von groß nach klein – so dicht, wie es passt
-        val widthKm = (idle.east - idle.west) * 111.2 * kotlin.math.cos(Math.toRadians(((idle.north + idle.south) / 2).coerceIn(-80.0, 80.0)))
+        // Orte nach Größe (GeoNames): füllt den Platz von groß nach klein – ab der Mindestgröße dieser Zoomstufe
         val minPop = minPopulation(widthKm)
         if (idx != null) {
-            for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = if (mini) 400 else 4000)) {
+            for (i in Places.inView(idx, south, north, west, east, limit = if (mini) 1500 else 12000)) {
                 // nach Größe sortiert: ab hier nur noch kleinere Orte
                 if (idx.pop[i] < minPop) break
                 val n = idx.name(i); if (n == ownName) continue
                 add(LabelPick(idx.lat[i].toDouble(), idx.lon[i].toDouble(), n, 3, pop = idx.pop[i]))
-                if (out.size > 45) break
+                if (out.size > 400) break
             }
         }
         // dazu Orte aus den Kartendaten (Dörfer unter 1000 Einwohnern) – nur ganz nah herangezoomt
         val taken = out.mapNotNull { it.name }.toHashSet()
-        if (idx != null && widthKm < 60) for (c in cities.sortedBy { it.rank }) if (c.name != ownName && c.name !in taken) add(L(c.lat, c.lon, c.name, 3))
+        if (idx != null && widthKm < 60) for (m in cities.sortedBy { it.rank }) if (m.name != ownName && m.name !in taken) add(L(m.lat, m.lon, m.name, 3))
         if (idx == null) {
             // Ortsliste noch nicht geladen: Großstädte der eingebauten Weltliste
-            for (c in WorldCities.ALL.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 3))
+            for (m in WorldCities.ALL.sortedBy { it.rank }) add(L(m.lat, m.lon, m.name, 3))
         }
-        // Hotspots: auffällige Stellen im verbleibenden freien Raum (nur bei Temperatur/Wind)
+        // Hotspots: auffällige Stellen im freien Raum (nur Temperatur/Wind) – auf einem festen Raster der Welt,
+        // damit sie beim Verschieben nicht wandern
         if (ww != null && hotspots && !mini) {
-            val stepPx = 34 * density
-            val nx = (idle.w / stepPx).toInt() + 1; val ny = (idle.h / stepPx).toInt() + 1
-            val v = Array(ny) { DoubleArray(nx) }
-            val o = DoubleArray(2)
-            for (j in 0 until ny) for (i in 0 until nx) {
-                val lat = idle.lat(j * stepPx).coerceIn(-84.0, 84.0); val lon = idle.lon(i * stepPx)
-                v[j][i] = if (temp) ww.tempAt(lat, lon) else { ww.windAt(lat, lon, o); hypot(o[0], o[1]) }
-            }
-            data class H(val i: Int, val j: Int, val score: Double)
-            val cand = mutableListOf<H>()
-            val r = 3
-            for (j in 0 until ny) for (i in 0 until nx) {
-                val c = v[j][i]; if (c.isNaN()) continue
-                var max = true; var min = true; var sum = 0.0; var n = 0
-                for (dj in -r..r) for (di in -r..r) {
-                    if (di == 0 && dj == 0) continue
-                    val q = v.getOrNull(j + dj)?.getOrNull(i + di) ?: continue
-                    if (q.isNaN()) continue
-                    if (q > c) max = false; if (q < c) min = false; sum += q; n++
+            val step = 34.0 * density
+            val i0 = kotlin.math.floor(wx(west) / step).toInt(); val i1 = kotlin.math.ceil(wx(east) / step).toInt()
+            val j0 = kotlin.math.floor(wy(north) / step).toInt(); val j1 = kotlin.math.ceil(wy(south) / step).toInt()
+            val nx = i1 - i0 + 1; val ny = j1 - j0 + 1
+            if (nx in 1..400 && ny in 1..400) {
+                val v = Array(ny) { DoubleArray(nx) }
+                val o = DoubleArray(2)
+                fun lonOf(i: Int) = (i0 + i) * step / world * 360.0 - 180.0
+                fun latOf(j: Int) = latOfWy((j0 + j) * step)
+                for (j in 0 until ny) for (i in 0 until nx) {
+                    val lat = latOf(j).coerceIn(-84.0, 84.0); val lon = lonOf(i)
+                    v[j][i] = if (temp) ww.tempAt(lat, lon) else { ww.windAt(lat, lon, o); hypot(o[0], o[1]) }
                 }
-                if (n == 0) continue
-                val dev = c - sum / n
-                if (temp && (max || min) && abs(dev) > 0.8) cand += H(i, j, abs(dev))
-                if (!temp && max && c > 8) cand += H(i, j, c)
-            }
-            for (h in cand.sortedByDescending { it.score }.take(14)) {
-                // mit Namen des nächsten Orts (Kevin am 17.11.2026: „1°“ ohne Namen bei Genf sah wie ein Fehler aus)
-                val la = idle.lat(h.j * stepPx); val lo = idle.lon(h.i * stepPx)
-                add(L(la, lo, idx?.let { nearPlace(it, la, lo) }?.let { "bei $it" }, 0))
+                data class H(val i: Int, val j: Int, val score: Double)
+                val cand = mutableListOf<H>()
+                val r = 3
+                for (j in 0 until ny) for (i in 0 until nx) {
+                    val cv = v[j][i]; if (cv.isNaN()) continue
+                    var max = true; var min = true; var sum = 0.0; var n = 0
+                    for (dj in -r..r) for (di in -r..r) {
+                        if (di == 0 && dj == 0) continue
+                        val q = v.getOrNull(j + dj)?.getOrNull(i + di) ?: continue
+                        if (q.isNaN()) continue
+                        if (q > cv) max = false; if (q < cv) min = false; sum += q; n++
+                    }
+                    if (n == 0) continue
+                    val dev = cv - sum / n
+                    if (temp && (max || min) && abs(dev) > 0.8) cand += H(i, j, abs(dev))
+                    if (!temp && max && cv > 8) cand += H(i, j, cv)
+                }
+                for (h in cand.sortedByDescending { it.score }.take(40)) {
+                    // mit Namen des nächsten Orts (Kevin am 17.11.2026: „1°“ ohne Namen bei Genf sah wie ein Fehler aus)
+                    val la = latOf(h.j); val lo = lonOf(h.i)
+                    add(L(la, lo, idx?.let { nearPlace(it, la, lo) }?.let { "bei $it" }, 0))
+                }
             }
         }
         return out
