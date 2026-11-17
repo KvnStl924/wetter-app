@@ -131,9 +131,12 @@ object TileMask : Interceptor {
     /** Kachel-Adresse (Vorlage mit {z}/{x}/{y}), deren Kacheln im DWD-Gebiet geleert werden. */
     fun marked(tiles: String) = "$tiles?$MARK=1"
 
+    /** Wie [marked], aber nur geleert, wenn das DWD-Messgebiet bekannt ist (ohne DWD-Bilder bleibt das weltweite Radar ganz). */
+    fun markedIfKnown(tiles: String) = "$tiles?$MARK=2"
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
-        if (req.url.queryParameter(MARK) == null) return chain.proceed(req)
+        val mode = req.url.queryParameter(MARK) ?: return chain.proceed(req)
         val clean = req.url.newBuilder().removeAllQueryParameters(MARK).build()
         val resp = chain.proceed(req.newBuilder().url(clean).build())
         val body = resp.body
@@ -141,7 +144,8 @@ object TileMask : Interceptor {
         val type = body.contentType()
         val bytes = body.bytes()
         // geht beim Leeren etwas schief, bekommt die Karte die Kachel unverändert
-        val out = runCatching { maskPng(bytes, clean.encodedPath, RadarData.coverage) }.getOrNull() ?: bytes
+        val cov = RadarData.coverage
+        val out = if (mode == "2" && cov == null) bytes else runCatching { maskPng(bytes, clean.encodedPath, cov) }.getOrNull() ?: bytes
         return resp.newBuilder().removeHeader("Content-Length").body(out.toResponseBody(type)).build()
     }
 

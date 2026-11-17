@@ -234,11 +234,13 @@ fun RadarScreen(
     // Regenbild zum gewählten Zeitpunkt dekodieren und umfärben (im Hintergrund-Thread, ca. 30 ms).
     val showRain = layer == RadarLayer.RAIN
     val bytes = ui.bytes[index]
-    LaunchedEffect(index, bytes, showRain) {
+    // Temperatur am Boden zur Stunde des Bilds (für Schnee), sonst die aktuelle
+    val frameTemp = ui.frames.getOrNull(index)?.let { f -> ui.world[de.schee.wetter.data.DwdWorld.hourOf(f.time)]?.temp } ?: ui.worldNow?.temp
+    LaunchedEffect(index, bytes, showRain, frameTemp) {
         if (!showRain) return@LaunchedEffect
         val b = bytes ?: return@LaunchedEffect
         val kind = ui.frames.getOrNull(index)?.kind ?: return@LaunchedEffect
-        shown = withContext(Dispatchers.Default) { RadarData.render(b, kind) }
+        shown = withContext(Dispatchers.Default) { RadarData.render(b, kind, frameTemp) }
     }
 
     // Abspielen: nur solange der Bildschirm sichtbar ist.
@@ -283,8 +285,9 @@ fun RadarScreen(
     // des Deutschland-Ausschnitts); ab +2 h deckt das DWD-Modellbild den ganzen Ausschnitt.
     val rainCover = if (frame?.kind == RadarData.Kind.FORECAST) ui.coverage else null
     var precipView by remember { mutableStateOf<Bitmap?>(null) }
-    if (preview != null) precipView = remember(rainGrid, rainCover) { rainGrid?.let { worldRainBitmap(it, rainCover) } }
-    else LaunchedEffect(rainGrid, rainCover) { precipView = rainGrid?.let { withContext(Dispatchers.Default) { worldRainBitmap(it, rainCover) } } }
+    val rainTemp = if (future) (ui.world[de.schee.wetter.data.DwdWorld.hourOf(frame!!.time)] ?: ui.worldNow)?.temp else null
+    if (preview != null) precipView = remember(rainGrid, rainCover, rainTemp) { rainGrid?.let { worldRainBitmap(it, rainCover, temp = rainTemp) } }
+    else LaunchedEffect(rainGrid, rainCover, rainTemp) { precipView = rainGrid?.let { withContext(Dispatchers.Default) { worldRainBitmap(it, rainCover, temp = rainTemp) } } }
     // Die ersten zwei Stunden (Kevin am 10.11.2026: „ab 5 Minuten verschwindet die scharfe Auflösung“): außerhalb des
     // DWD-Radars bleibt das Radarbild von „Jetzt“ stehen und geht weich ins Modell über.
     val hold = if (showRain) holdFrame(ui) else null
@@ -317,7 +320,7 @@ fun RadarScreen(
             transform = previewTransform(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), previewArea)
             idle = transform
             val kind = ui.frames.getOrNull(index)?.kind
-            val overlay = if (showRain && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind) } else null
+            val overlay = if (showRain && bytes != null && kind != null) remember(index) { RadarData.render(bytes, kind, ui.worldNow?.temp) } else null
             PreviewMap(preview, if (previewArea == null) overlay else null, field, if (layer == RadarLayer.CLOUDS) ui.clouds?.bitmap else null, transform!!, precipView, .9f * model)
         } else {
             RadarMap(place, if (showRain) shown else null, if (showRain) ui.rainViewer else emptyList(), rvIndex,
@@ -613,7 +616,7 @@ internal fun holdFrame(ui: RadarUi): de.schee.wetter.data.RainViewer.Frame? =
  * Über Deutschland liegt das DWD-Bild – dort ausgeblendet: mit [cover] genau im Messgebiet des DWD-Radars,
  * ohne im ganzen Deutschland-Ausschnitt.
  */
-fun worldRainBitmap(g: WorldGrid, cover: RadarData.Coverage? = null, size: Int = 1024): Bitmap {
+fun worldRainBitmap(g: WorldGrid, cover: RadarData.Coverage? = null, size: Int = 1024, temp: WorldGrid? = null): Bitmap {
     val px = IntArray(size * size)
     for (y in 0 until size) {
         val lat = Satellite.latOfRow(y + 0.5, size)
@@ -624,8 +627,10 @@ fun worldRainBitmap(g: WorldGrid, cover: RadarData.Coverage? = null, size: Int =
             val keep = if (cover != null) (if (cover.at(lat, lon)) 0.0 else 1.0)
             else (1 - minOf(lat - RadarData.SOUTH, RadarData.NORTH - lat, lon - RadarData.WEST, RadarData.EAST - lon) / 0.5).coerceIn(0.0, 1.0)
             if (keep == 0.0) continue
-            val a = (if (mm < 1.0) 0xB0 else 0xD8) * keep * ((mm - RAIN_MIN) / 0.3).coerceIn(0.0, 1.0)
-            px[y * size + x] = (RadarData.colorFor(mm) and 0xFFFFFF) or (a.toInt() shl 24)
+            // Farben und Deckkraft wie das Radar (RainViewer-Schema) – überall dasselbe Bild
+            val c = RadarData.argbFor(mm, snow = temp != null && temp.value(lat, lon) <= RadarData.SNOW_C)
+            val a = (c ushr 24) * keep * ((mm - RAIN_MIN) / 0.3).coerceIn(0.0, 1.0)
+            px[y * size + x] = (c and 0xFFFFFF) or (a.toInt() shl 24)
         }
     }
     return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
@@ -1337,10 +1342,11 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
     var cities by remember { mutableStateOf<List<MapCity>>(emptyList()) }
     var shown by remember { mutableStateOf<Bitmap?>(null) }
     val nowBytes = ui.bytes[ui.nowIndex]
-    LaunchedEffect(nowBytes, wind) {
+    val nowTemp = ui.worldNow?.temp
+    LaunchedEffect(nowBytes, wind, nowTemp) {
         if (wind) return@LaunchedEffect
         val b = nowBytes ?: return@LaunchedEffect
-        shown = withContext(Dispatchers.Default) { RadarData.render(b, RadarData.Kind.RADAR) }
+        shown = withContext(Dispatchers.Default) { RadarData.render(b, RadarData.Kind.RADAR, nowTemp) }
     }
     val rvIndex = ui.frames.getOrNull(ui.nowIndex)?.let { de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, it.time) }
         ?: ui.rainViewer.lastIndex.takeIf { it >= 0 && ui.frames.isEmpty() }

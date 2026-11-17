@@ -504,7 +504,8 @@ fun RadarMap(
                     (s.getLayer(id) as? RasterLayer)?.rasterOpacityTransition = org.maplibre.android.style.layers.TransitionOptions(320, 0)
                 }
                 // Regen darüber (über Grenzen, unter Ortsnamen)
-                listOf(raster("precip-layer", "precip", 0.9f), raster("precip2-layer", "precip2", 0.9f), raster("radar-layer", "radar", 0.9f)).forEach { below(it, labels) }
+                // Deckkraft 0,8 wie das weltweite Radar (RainViewer) – Deutschland und Ausland sehen gleich aus
+                listOf(raster("precip-layer", "precip", 0.8f), raster("precip2-layer", "precip2", 0.8f), raster("radar-layer", "radar", 0.8f)).forEach { below(it, labels) }
                 // Amtliche Warngebiete (DWD-WMS, Gemeinden) – erst beim Einschalten sichtbar
                 val warnTiles = org.maplibre.android.style.sources.TileSet("2.2.0",
                     "https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap&layers=dwd:Warnungen_Gemeinden&styles=" +
@@ -527,7 +528,8 @@ fun RadarMap(
         val s = style ?: return@LaunchedEffect
         rainViewer.forEachIndexed { i, f ->
             if (s.getSource("rv-$i") != null) return@forEachIndexed
-            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", f.tiles).apply {
+            // im Messgebiet des DWD nur das DWD-Radar (sonst doppelt übereinander, z. B. Ringe dänischer Radare über Kiel)
+            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", de.schee.wetter.data.TileMask.markedIfKnown(f.tiles)).apply {
                 maxZoom = 7f; attribution = "<a href=\"https://www.rainviewer.com/\">Radar weltweit: RainViewer</a>"
             }
             s.addSource(org.maplibre.android.style.sources.RasterSource("rv-$i", tiles, 512))
@@ -568,7 +570,7 @@ fun RadarMap(
     }
     LaunchedEffect(style, precipOpacity) {
         val s = style ?: return@LaunchedEffect
-        listOf("precip-layer", "precip2-layer").forEach { s.getLayer(it)?.setProperties(PropertyFactory.rasterOpacity(0.9f * precipOpacity)) }
+        listOf("precip-layer", "precip2-layer").forEach { s.getLayer(it)?.setProperties(PropertyFactory.rasterOpacity(0.8f * precipOpacity)) }
     }
 
     // Bilder austauschen, wenn sich Zeitpunkt oder Ebene ändern.

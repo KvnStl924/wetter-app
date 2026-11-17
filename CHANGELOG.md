@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.3.0 – Radar überall gleich, mit Schnee
+- Deutschland und der Rest der Welt sehen im Radar jetzt gleich aus: Das DWD-Radar und das Regenmodell nutzen dieselben Farben und dieselbe Deckkraft wie das weltweite Radar (RainViewer, Farbschema „Universal Blue“): sehr schwacher Niederschlag beige, dann hell- bis dunkelblau, gelb/orange, rot, rosa
+- Im Messgebiet des DWD liegt das weltweite Radar nicht mehr zusätzlich darunter (vorher doppelte Farben und z. B. Ringe dänischer Radare über Kiel)
+- Schnee: weiß bis hellblau wie bei RainViewer. Das DWD-Radar unterscheidet Regen und Schnee nicht – Schnee wird angezeigt, wo es laut DWD-Modell am Boden höchstens 1 °C hat
+
 ## 3.2.2 – Radar auch bei langsamem DWD nicht leer
 - Am 17.11. um 17:21 antwortete der DWD-Server über 20 Sekunden nicht; direkt nach dem Update waren noch keine Bilder gespeichert – das Radar blieb leer. Jetzt springt in dem Fall das weltweite Radar (RainViewer) ein, bis die DWD-Bilder da sind
 - Auf das aktuelle DWD-Radarbild wird bis 40 Sekunden gewartet (vorher 20)
