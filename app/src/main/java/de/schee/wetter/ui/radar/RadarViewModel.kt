@@ -129,14 +129,19 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch(Dispatchers.IO) {
             val started = System.currentTimeMillis()
             restore()
-            // Weltweites Radar (RainViewer) gleichzeitig abfragen
-            val rvLoad = async { runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList()) }
+            // Weltweites Radar (RainViewer) gleichzeitig abfragen – und gleich zeigen: Hängt der DWD, ist so trotzdem
+            // ein Radarbild da (Kevin am 17.11.2026: DWD über 20 s ohne Antwort, Radar blieb leer)
+            val rvLoad = async {
+                runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
+                    .also { rv -> if (rv.isNotEmpty()) set { it.copy(rainViewer = rv) } }
+            }
             // Jüngste Messung finden: geschätzte Zeit, 5 und 10 Minuten früher – alle drei gleichzeitig (bis 3.2.0
             // nacheinander: hing der DWD, dauerte allein das bis zu einer Minute).
             val guess = RadarData.latestGuess(Instant.now())
             val tries = (0 until 3).map { k ->
                 val t = guess.minusSeconds(300L * k)
-                t to async { runCatching { RadarData.fetch(RadarData.Frame(t, 0, RadarData.Kind.RADAR)) }.getOrNull() }
+                // der DWD braucht manchmal über 20 s (17.11.2026) – länger warten
+                t to async { runCatching { RadarData.fetch(RadarData.Frame(t, 0, RadarData.Kind.RADAR), timeoutMs = 40_000) }.getOrNull() }
             }
             var latest = guess
             var nowBytes: ByteArray? = null
@@ -226,11 +231,15 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         hoursTriedAt = System.currentTimeMillis()
         hoursJob = viewModelScope.launch {
             worldJob?.join()
+            var got = 0
             for (t in _ui.value.worldHours.drop(1)) {
                 if (_ui.value.world[t] != null) continue
                 val ww = loadHour(t) ?: continue
                 set { it.copy(world = it.world + (t to ww)) }
+                got++
             }
+            // DWD hat nichts geliefert (z. B. zu langsam): beim nächsten Vorladen in einer Minute erneut versuchen
+            if (got == 0 && _ui.value.worldHours.drop(1).any { _ui.value.world[it] == null }) hoursTriedAt = 0
         }
     }
 
@@ -366,6 +375,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             }
             val n = hours.count { _ui.value.worldRain[it] != null }
             AppLog.data("Regen-Vorhersage weltweit (DWD ICON${used?.let { ", Lauf ${it.toString().substring(11, 16)} UTC" } ?: ""}): $n/${hours.size} Stunden bereit (${System.currentTimeMillis() - started} ms)")
+            // nichts bekommen (DWD zu langsam): in einer Minute erneut versuchen statt erst in zehn
+            if (n == 0) rainTriedAt = 0
         }
     }
 
@@ -408,7 +419,9 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
      * damit das Vollbild-Radar beim Öffnen fertig ist (Kevin am 17.11.2026).
      */
     fun preload() {
-        load(); loadWorld(); loadClouds(); loadLightning(); loadWorldRain(); loadWorldHours()
+        load(); loadWorld(); loadClouds(); loadLightning()
+        // Die großen Modelldaten erst nach dem Radar: alles geht an denselben DWD-Server, das Radar hat Vorrang
+        viewModelScope.launch { job?.join(); loadWorldRain(); loadWorldHours() }
         if (de.schee.wetter.data.Places.index.value == null) viewModelScope.launch(Dispatchers.IO) { runCatching { de.schee.wetter.data.Places.load(getApplication()) } }
     }
 

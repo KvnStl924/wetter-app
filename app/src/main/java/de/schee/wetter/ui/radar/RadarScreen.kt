@@ -274,7 +274,9 @@ fun RadarScreen(
 
     // Regen-Vorhersage außerhalb Deutschlands: Modell des DWD weltweit (nur für Zeitpunkte in der Zukunft)
     val frame = ui.frames.getOrNull(index)
-    val rvIndex = if (showRain && frame != null && frame.minutes <= 0) de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, frame.time) else null
+    // ohne DWD-Bilder (DWD antwortet nicht): das neueste weltweite Radar, damit die Karte nicht leer ist
+    val rvIndex = if (showRain && frame == null) ui.rainViewer.lastIndex.takeIf { it >= 0 }
+        else if (showRain && frame != null && frame.minutes <= 0) de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, frame.time) else null
     val future = showRain && frame != null && frame.minutes > 0
     val rainGrid = if (future) ui.worldRain[rainHour(frame!!.time)] else null
     // Bis +2 h das Modell nur dort ausblenden, wo das DWD-Radar wirklich misst (vorher fehlte der Regen in den Ecken
@@ -1078,7 +1080,11 @@ private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, abroad: Bool
     when {
         ui.error != null -> { Text(ui.error, style = WType.body.copy(color = WColors.Warn)); return }
         // keine Lade-Hinweise (Kevin am 17.11.2026) – Bilder vom letzten Mal sind sofort da; nur beim allerersten Start leer
-        ui.frames.isEmpty() -> { Spacer(Modifier.height(44.dp)); return }
+        ui.frames.isEmpty() -> {
+            ui.rainViewer.lastOrNull()?.let { rv -> Text("${hhmm.format(rv.time)} · Radar weltweit (DWD noch nicht erreichbar)", style = WType.small) }
+                ?: Spacer(Modifier.height(44.dp))
+            return
+        }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         RoundButton(onPlay, dark = false) { if (playing) PauseGlyph() else PlayGlyph() }
@@ -1337,6 +1343,7 @@ fun MiniRadar(place: RadarPlace, wind: Boolean, modifier: Modifier = Modifier, v
         shown = withContext(Dispatchers.Default) { RadarData.render(b, RadarData.Kind.RADAR) }
     }
     val rvIndex = ui.frames.getOrNull(ui.nowIndex)?.let { de.schee.wetter.data.RainViewer.indexFor(ui.rainViewer, it.time) }
+        ?: ui.rainViewer.lastIndex.takeIf { it >= 0 && ui.frames.isEmpty() }
     val ww = ui.worldNow
     var field by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(wind, ww) {

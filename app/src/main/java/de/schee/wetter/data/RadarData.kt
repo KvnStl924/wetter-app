@@ -115,8 +115,8 @@ object RadarData {
      * Gespeichert werden nur die Bytes; erst beim Anzeigen wird dekodiert und umgefärbt ([render]),
      * sonst bräuchten 59 Bilder über 150 MB Speicher.
      */
-    fun fetch(frame: Frame): ByteArray? {
-        val bytes = Http.get("DWD-Radar ${frame.minutes} min", url(frame), timeoutMs = 20_000, log = false)
+    fun fetch(frame: Frame, timeoutMs: Int = 20_000): ByteArray? {
+        val bytes = Http.get("DWD-Radar ${frame.minutes} min", url(frame), timeoutMs = timeoutMs, log = false)
         return if (isPng(bytes)) bytes else null // sonst XML-Fehlermeldung („Zeit nicht verfügbar“)
     }
 

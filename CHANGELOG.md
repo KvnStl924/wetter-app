@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.2.2 – Radar auch bei langsamem DWD nicht leer
+- Am 17.11. um 17:21 antwortete der DWD-Server über 20 Sekunden nicht; direkt nach dem Update waren noch keine Bilder gespeichert – das Radar blieb leer. Jetzt springt in dem Fall das weltweite Radar (RainViewer) ein, bis die DWD-Bilder da sind
+- Auf das aktuelle DWD-Radarbild wird bis 40 Sekunden gewartet (vorher 20)
+- Erst das Radar, dann die großen Modelldaten (Regen weltweit, Temperatur/Wind) – alles geht an denselben DWD-Server
+- Lieferte der DWD keine Modelldaten, wird es nach einer Minute erneut versucht (vorher erst nach zehn)
+
 ## 3.2.1 – Radar sofort da, ohne Lade-Hinweise
 - Radarbilder werden auf dem Handy gespeichert: Beim Öffnen der App (und im Vollbild-Radar) sind sofort die letzten Bilder da, auch wenn der DWD gerade langsam antwortet (am 17.11. über 12 Sekunden). Neue Bilder ersetzen sie, sobald sie geladen sind; alte werden gelöscht
 - Das aktuelle Radarbild wird für drei mögliche Zeitpunkte gleichzeitig abgefragt statt nacheinander; fehlt viel, wird schon nach einer Minute erneut versucht
