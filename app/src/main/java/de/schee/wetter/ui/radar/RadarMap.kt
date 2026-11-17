@@ -55,7 +55,9 @@ data class MapLabel(val lat: Double, val lon: Double, val value: String?, val na
                     /** Land: kleines Land → kleinere Schrift und Pille. */
                     val small: Boolean = false,
                     /** Schriftgröße des Namens in der Orts-Marke (sp). */
-                    val textSize: Float = 11f) {
+                    val textSize: Float = 11f,
+                    /** Land: wo Höchst- bzw. Tiefstwert herrschen (Antippen springt dorthin). */
+                    val maxAt: Pair<Double, Double>? = null, val minAt: Pair<Double, Double>? = null) {
     /** Name und Wert in EINER Marke („Köln 12°“): Orte und benannte Hotspots mit farbigem Wert. */
     val chip: Boolean get() = (kind == 3 || kind == 0) && name != null && value != null && color != null && value2 == null
 }
@@ -164,6 +166,8 @@ internal fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatu
         l.name?.let { addStringProperty("name", it) }
         pillName(l)?.let { addStringProperty("pill", it) }
         if (l.chip) addNumberProperty("chip", 1)
+        l.maxAt?.let { addNumberProperty("maxLat", it.first); addNumberProperty("maxLon", it.second) }
+        l.minAt?.let { addNumberProperty("minLat", it.first); addNumberProperty("minLon", it.second) }
         // Schriftgröße immer mitgeben: fehlte sie, machte die Karte daraus Größe 0 – alle Ortsnamen waren weg (3.0.2, behoben 3.0.3)
         addNumberProperty("ts", if (l.kind == 4) countryStyle(l).text else LABEL_TEXT)
     }
@@ -374,6 +378,10 @@ fun RadarMap(
     pick: Pair<Double, Double>? = null,
     /** Tippen (lang = true) auf die Karte. */
     onTap: ((Double, Double, Boolean) -> Unit)? = null,
+    /** Max/Min eines Landes angetippt: Stelle des Werts, true = Höchstwert, Land. */
+    onExtreme: ((Double, Double, Boolean, String) -> Unit)? = null,
+    /** Karte dorthin fliegen, wenn [flyTick] steigt. */
+    flyTo: Pair<Double, Double>? = null, flyTick: Int = 0,
     /** Karte wird gerade verschoben/gezoomt (true) bzw. steht wieder (false). */
     onMoving: (Boolean) -> Unit = {},
     onTransform: (MapTransform) -> Unit,
@@ -385,6 +393,7 @@ fun RadarMap(
     val report by rememberUpdatedState(onTransform)
     val reportCities by rememberUpdatedState(onCities)
     val tap by rememberUpdatedState(onTap)
+    val extreme by rememberUpdatedState(onExtreme)
     val moving by rememberUpdatedState(onMoving)
     val detailNow by rememberUpdatedState(cloudDetail)
     val cloudsOn by rememberUpdatedState(clouds != null)
@@ -472,7 +481,22 @@ fun RadarMap(
             m.addOnCameraMoveListener { send() }
             m.addOnCameraMoveStartedListener { moving(true) }
             if (!mini) {
-                m.addOnMapClickListener { ll -> tap?.invoke(ll.latitude, ll.longitude, false); tap != null }
+                m.addOnMapClickListener { ll ->
+                    // Max/Min-Pille eines Landes getroffen? Linke Hälfte = Höchstwert, rechte = Tiefstwert
+                    val sp = m.projection.toScreenLocation(ll)
+                    val hit = runCatching { m.queryRenderedFeatures(sp, "lbl-value") }.getOrNull()
+                        ?.firstOrNull { it.hasProperty("maxLat") && it.hasProperty("minLat") }
+                    val pt = hit?.geometry() as? Point
+                    if (hit != null && pt != null && extreme != null) {
+                        val ax = m.projection.toScreenLocation(LatLng(pt.latitude(), pt.longitude())).x
+                        val isMax = sp.x < ax
+                        val p = if (isMax) "max" else "min"
+                        extreme?.invoke(hit.getNumberProperty("${p}Lat").toDouble(), hit.getNumberProperty("${p}Lon").toDouble(), isMax,
+                            runCatching { hit.getStringProperty("name") }.getOrNull() ?: "")
+                        return@addOnMapClickListener true
+                    }
+                    tap?.invoke(ll.latitude, ll.longitude, false); tap != null
+                }
                 m.addOnMapLongClickListener { ll -> tap?.invoke(ll.latitude, ll.longitude, true); tap != null }
             }
             // Orte aus den Beschriftungs-Ebenen des Kartenstils (die Karte hat sie schon so verteilt, dass nichts überlappt)
@@ -706,6 +730,12 @@ fun RadarMap(
         if (!mini) return@LaunchedEffect
         val p = place ?: return@LaunchedEffect
         map?.cameraPosition = CameraPosition.Builder().target(LatLng(p.lat, p.lon)).zoom(7.0).build()
+    }
+
+    LaunchedEffect(flyTick) {
+        if (flyTick == 0) return@LaunchedEffect
+        val c = flyTo ?: return@LaunchedEffect
+        map?.animateCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(LatLng(c.first, c.second), maxOf(map?.cameraPosition?.zoom ?: 8.0, 8.0)), 900)
     }
 
     LaunchedEffect(centerTick) {

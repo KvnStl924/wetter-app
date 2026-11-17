@@ -129,13 +129,22 @@ object Countries {
      * das, was man im Land erlebt): erst Städte ab 15 000 Einwohnern – die liegen fast alle unter 1000 m –, bei zu
      * wenigen ab 2000, dann alle Orte, zuletzt die Fläche.
      */
-    fun extremes(c: Index, k: Int, places: Places.Index, ww: WorldWeather): Pair<Double, Double>? {
+    fun extremes(c: Index, k: Int, places: Places.Index, ww: WorldWeather): Extremes? {
         var max = Double.NEGATIVE_INFINITY; var min = Double.POSITIVE_INFINITY
-        fun take(t: Double) { if (t.isNaN()) return; if (t > max) max = t; if (t < min) min = t }
+        var maxAt = 0.0 to 0.0; var minAt = 0.0 to 0.0
+        // Ort merken: Antippen von Höchst- oder Tiefstwert springt dorthin (Kevin am 17.11.2026)
+        fun take(t: Double, lat: Double, lon: Double) {
+            if (t.isNaN()) return
+            if (t > max) { max = t; maxAt = lat to lon }
+            if (t < min) { min = t; minAt = lat to lon }
+        }
         val m = c.members[k]
         val use = listOf(15_000, 2_000, 0).map { p -> m.filter { places.pop[it] >= p } }.firstOrNull { it.size >= 3 } ?: m.toList()
-        for (i in use) take(ww.tempAt(places.lat[i].toDouble(), places.lon[i].toDouble()))
-        if (max == Double.NEGATIVE_INFINITY) for (cell in c.cells[k]) take(ww.tempAt(c.cellLat(cell), c.cellLon(cell)))
-        return if (max == Double.NEGATIVE_INFINITY) null else max to min
+        for (i in use) { val la = places.lat[i].toDouble(); val lo = places.lon[i].toDouble(); take(ww.tempAt(la, lo), la, lo) }
+        if (max == Double.NEGATIVE_INFINITY) for (cell in c.cells[k]) { val la = c.cellLat(cell); val lo = c.cellLon(cell); take(ww.tempAt(la, lo), la, lo) }
+        return if (max == Double.NEGATIVE_INFINITY) null else Extremes(max, maxAt.first, maxAt.second, min, minAt.first, minAt.second)
     }
+
+    /** Höchst- und Tiefstwert eines Landes mit der Stelle, wo sie herrschen. */
+    data class Extremes(val max: Double, val maxLat: Double, val maxLon: Double, val min: Double, val minLat: Double, val minLon: Double)
 }

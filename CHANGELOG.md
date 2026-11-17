@@ -1,6 +1,9 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.6.0 – Max/Min antippen: hin zum wärmsten bzw. kältesten Ort
+- In der Max/Min-Ansicht der Karte: Tippen auf den Höchstwert (linke Hälfte, ▲) oder den Tiefstwert (rechte Hälfte, ▼) eines Landes fliegt die Karte zu der Stelle, wo dieser Wert herrscht, und zeigt sie wie einen angetippten Punkt (Ortsname, Temperatur, Wind)
+
 ## 3.5.1 – Städte bleiben beim Verschieben stehen
 - Welche Orte, Länder (Max/Min) und Kälte-/Wärmepunkte beschriftet werden, hängt nur noch von der Zoomstufe ab, nicht davon, wo der Ausschnitt liegt. Beim Verschieben verschwinden keine Städte mehr und es tauchen keine neuen dazwischen auf
 - Orte am Bildrand oder unter den Bedienelementen werden nicht mehr ausgeblendet, sondern dürfen angeschnitten sein

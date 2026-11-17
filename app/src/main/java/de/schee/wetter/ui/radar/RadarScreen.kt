@@ -162,6 +162,9 @@ fun RadarScreen(
     var cities by remember { mutableStateOf(previewCities) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var centerTick by remember { mutableIntStateOf(0) }
+    var flyTick by remember { mutableIntStateOf(0) }
+    var flyTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var pendingPick by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val units = remember { de.schee.wetter.data.Units.from(context) }
     // Max/Min je Land statt Werten an jeder Stadt (Kevin am 10.11.2026), bleibt gemerkt
@@ -339,7 +342,20 @@ fun RadarScreen(
                 fix = fix, motion = if (showRain && (frame?.minutes ?: 0) <= 120) motion else null, warnings = warnings,
                 pick = picked?.let { it.lat to it.lon },
                 onTap = { la, lo, long -> tapped(la, lo, long) },
-                onMoving = { moving = it; if (it && picked != null) picked = null }) { transform = it }
+                // Max/Min antippen (Kevin am 17.11.2026): zur Stelle des Werts fliegen und sie wie angetippt zeigen
+                onExtreme = { la, lo, isMax, country ->
+                    AppLog.tap("Vollbild-Radar → Max/Min ${if (isMax) "Höchstwert" else "Tiefstwert"} $country angetippt")
+                    flyTarget = la to lo; flyTick++
+                    pendingPick = la to lo
+                    tapped(la, lo, false)
+                },
+                flyTo = flyTarget, flyTick = flyTick,
+                onMoving = {
+                    moving = it
+                    if (it && picked != null && pendingPick == null) picked = null
+                    // nach dem Flug: Punkt erneut zeigen (Karte steht jetzt dort)
+                    if (!it) pendingPick?.let { p -> pendingPick = null; tapped(p.first, p.second, false) }
+                }) { transform = it }
         }
         val t = transform
         // Windteilchen blenden beim Verschieben kurz aus und erscheinen danach an der richtigen Stelle
@@ -1090,8 +1106,9 @@ internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolea
         return picks.mapNotNull { l ->
             if (l.kind == 4) {
                 val c = idx?.countries ?: return@mapNotNull null
-                val (max, min) = (if (ww != null) de.schee.wetter.data.Countries.extremes(c, l.country, idx, ww) else null) ?: return@mapNotNull null
-                return@mapNotNull MapLabel(l.lat, l.lon, "${units.tNum(max)}°", l.name, 4, tempColorMap(max), "${units.tNum(min)}°", tempColorMap(min), small = l.small)
+                val e = (if (ww != null) de.schee.wetter.data.Countries.extremes(c, l.country, idx, ww) else null) ?: return@mapNotNull null
+                return@mapNotNull MapLabel(l.lat, l.lon, "${units.tNum(e.max)}°", l.name, 4, tempColorMap(e.max), "${units.tNum(e.min)}°", tempColorMap(e.min), small = l.small,
+                    maxAt = e.maxLat to e.maxLon, minAt = e.minLat to e.minLon)
             }
             var color: Int? = null
             val value: String? = when {
