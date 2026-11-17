@@ -111,7 +111,6 @@ fun RadarContent(d: TileData) {
         MapBase(d.maps)
         d.maps?.radar?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         LocationDot(Modifier.align(Alignment.Center), d.units.t(d.f.current.temp))
-        if (d.maps == null) Text("Radar wird geladen …", style = WType.bodyDim, modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp))
     }
 }
 

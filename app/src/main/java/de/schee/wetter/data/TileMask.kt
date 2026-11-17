@@ -2,6 +2,9 @@ package de.schee.wetter.data
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -27,17 +30,103 @@ import kotlin.math.sinh
 object TileMask : Interceptor {
     const val MARK = "dwdmask"
     private var installed = false
+    @Volatile private var client: OkHttpClient? = null
+
+    /**
+     * Abruf-Programm der Karte – mit Zwischenspeicher auf dem Handy (150 MB, ältestes fliegt zuerst raus). Dieselben
+     * Kacheln lädt [prefetch] schon beim App-Start vor; öffnet man dann die Karte, kommen sie aus dem Speicher.
+     */
+    fun client(context: android.content.Context): OkHttpClient = client ?: synchronized(this) {
+        client ?: OkHttpClient.Builder()
+            // wie der eigene Standard der Karte (20 Abrufe je Server gleichzeitig), nur mit unserem Zwischenschritt
+            .dispatcher(Dispatcher().apply { maxRequestsPerHost = 20 })
+            .cache(okhttp3.Cache(java.io.File(context.cacheDir, "map_tiles"), 150L * 1024 * 1024))
+            .addInterceptor(this)
+            .addNetworkInterceptor(KeepTiles)
+            .build().also { client = it }
+    }
 
     /** Einmal je App-Start, bevor die Karte Kacheln lädt. */
-    fun install() {
+    fun install(context: android.content.Context) {
         if (installed) return
         installed = true
-        runCatching {
-            // wie der eigene Standard der Karte (20 Abrufe je Server gleichzeitig), nur mit unserem Zwischenschritt
-            org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(
-                OkHttpClient.Builder().dispatcher(Dispatcher().apply { maxRequestsPerHost = 20 }).addInterceptor(this).build())
+        runCatching { org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(client(context.applicationContext)) }
+    }
+
+    /**
+     * Kacheln ändern sich unter ihrer Adresse nie (Grundkarte mit Versionsstand, Radar mit Zeitstempel im Pfad) –
+     * deshalb dürfen sie im Zwischenspeicher bleiben, egal was der Server dazu sagt. Radar-Kacheln gelten nach
+     * 2 Stunden als veraltet; ist der Speicher voll, fliegt das Älteste zuerst raus.
+     */
+    private object KeepTiles : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val resp = chain.proceed(chain.request())
+            if (!resp.isSuccessful) return resp
+            val url = chain.request().url
+            val age = when {
+                url.host.endsWith("rainviewer.com") && url.encodedPath.endsWith(".png") -> 2 * 3600
+                url.host == "tiles.openfreemap.org" && url.encodedPath.endsWith(".pbf") -> 14 * 24 * 3600
+                else -> return resp
+            }
+            return resp.newBuilder().removeHeader("Pragma").removeHeader("Expires")
+                .header("Cache-Control", "public, max-age=$age").build()
         }
     }
+
+    /** Kachel (Spalte, Zeile) an einer Position. */
+    fun tileAt(z: Int, lat: Double, lon: Double): Pair<Int, Int> {
+        val n = 1 shl z
+        val x = ((lon + 180.0) / 360.0 * n).toInt().coerceIn(0, n - 1)
+        val r = Math.toRadians(lat.coerceIn(-85.0, 85.0))
+        val y = ((1 - kotlin.math.ln(kotlin.math.tan(r) + 1 / kotlin.math.cos(r)) / PI) / 2 * n).toInt().coerceIn(0, n - 1)
+        return x to y
+    }
+
+    /** Kacheln rund um eine Position (3 × 3), als Adressen aus einer Vorlage mit {z}/{x}/{y}. */
+    fun around(template: String, z: Int, lat: Double, lon: Double): List<String> {
+        val (cx, cy) = tileAt(z, lat, lon)
+        val n = 1 shl z
+        return (-1..1).flatMap { dy -> (-1..1).map { dx -> (cx + dx).mod(n) to (cy + dy) } }
+            .filter { it.second in 0 until n }
+            .map { (x, y) -> template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y") }
+    }
+
+    /** Beschreibung der Grundkarte (OpenFreeMap) mit der Kachel-Adresse – wie im Kartenstil eingetragen. */
+    const val BASE_TILEJSON = "https://tiles.openfreemap.org/planet"
+
+    /**
+     * Kartenkacheln um den Ort schon beim App-Start laden (Kevin am 17.11.2026: „wenn ich auf das Radar drücke,
+     * muss das Bild da sein“): Grundkarte (Zoom 5–8) und die drei neuesten weltweiten Radarbilder (Zoom 6–7).
+     * Was schon im Speicher liegt, wird nicht erneut geladen – RainViewer bekommt so nur wenige Abrufe je Minute.
+     */
+    suspend fun prefetch(context: android.content.Context, lat: Double, lon: Double, rv: List<RainViewer.Frame>) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val c = client(context.applicationContext)
+            val started = System.currentTimeMillis()
+            val base = runCatching {
+                val json = c.newCall(okhttp3.Request.Builder().url(BASE_TILEJSON).build()).execute().use { it.body?.string() }
+                org.json.JSONObject(json ?: "{}").getJSONArray("tiles").getString(0)
+            }.getOrNull()
+            val urls = (base?.let { t -> (5..8).flatMap { z -> around(t, z, lat, lon) } } ?: emptyList()) +
+                rv.takeLast(3).flatMap { f -> (6..7).flatMap { z -> around(f.tiles, z, lat, lon) } }
+            val fresh = java.util.concurrent.atomic.AtomicInteger()
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            kotlinx.coroutines.coroutineScope {
+                urls.map { u ->
+                    async {
+                        gate.withPermit {
+                            runCatching {
+                                c.newCall(okhttp3.Request.Builder().url(u).build()).execute().use { r ->
+                                    r.body?.bytes()
+                                    if (r.networkResponse != null) fresh.incrementAndGet()
+                                }
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            if (fresh.get() > 0) de.schee.wetter.log.AppLog.data("Kartenkacheln vorgeladen: ${fresh.get()} neu, ${urls.size - fresh.get()} schon im Speicher (${System.currentTimeMillis() - started} ms)")
+        }
 
     /** Kachel-Adresse (Vorlage mit {z}/{x}/{y}), deren Kacheln im DWD-Gebiet geleert werden. */
     fun marked(tiles: String) = "$tiles?$MARK=1"

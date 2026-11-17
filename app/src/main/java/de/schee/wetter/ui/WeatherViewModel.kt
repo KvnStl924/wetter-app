@@ -199,7 +199,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { WarningsRepository.load(place.lat, place.lon) }
                     .onSuccess { w -> set(id) { it.copy(warnings = w, warningsLoaded = true) }; if (w.isNotEmpty()) AppLog.i(AppLog.Cat.DATEN, "DWD-Warnungen: ${w.joinToString { it.event }}") }
             }
-            viewModelScope.launch {
+            // Einfache Kartenbilder nur ohne Live-Karte (Testbilder am PC) – auf dem Handy zeigt die Live-Karte das
+            // Radar aus dem Radar-Speicher, eigene Abrufe beim DWD wären doppelt und bremsen das Radar
+            if (!de.schee.wetter.ui.tiles.LiveMaps.enabled) viewModelScope.launch {
                 runCatching { de.schee.wetter.data.MapImages.load(place.lat, place.lon) }.onSuccess { m -> set(id) { it.copy(maps = m) } }
             }
             viewModelScope.launch {

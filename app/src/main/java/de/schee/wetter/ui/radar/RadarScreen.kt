@@ -1077,23 +1077,21 @@ private fun label(ui: RadarUi, i: Int, abroad: Boolean = false): String {
 private fun RainTimeline(ui: RadarUi, index: Int, playing: Boolean, abroad: Boolean, onPlay: () -> Unit, onIndex: (Int) -> Unit, onDone: () -> Unit) {
     when {
         ui.error != null -> { Text(ui.error, style = WType.body.copy(color = WColors.Warn)); return }
-        ui.frames.isEmpty() -> { Text("Radar wird geladen …", style = WType.body); return }
+        // keine Lade-Hinweise (Kevin am 17.11.2026) – Bilder vom letzten Mal sind sofort da; nur beim allerersten Start leer
+        ui.frames.isEmpty() -> { Spacer(Modifier.height(44.dp)); return }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         RoundButton(onPlay, dark = false) { if (playing) PauseGlyph() else PlayGlyph() }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(label(ui, index, abroad), style = WType.small)
-            val missing = ui.frames.size - ui.loaded
             val f = ui.frames.getOrNull(index)
             Text(
-                if (missing > 0) "Lade Radarbilder … ${ui.loaded}/${ui.frames.size}"
-                else if (ui.bytes[index] == null) "Für diesen Zeitpunkt gibt es kein Bild."
+                if (ui.bytes.containsKey(index) && ui.bytes[index] == null) "Für diesen Zeitpunkt gibt es kein Bild."
                 // Zukunft: außerhalb Deutschlands das Weltmodell des DWD (ICON), sonst das weltweite Radar
                 else if (f != null && f.minutes > 0) {
                     val hold = if (f.kind == RadarData.Kind.FORECAST) holdFrame(ui) else null
                     when {
-                        ui.worldRain[rainHour(f.time)] == null && ui.worldRainLoading -> "DWD · weltweite Vorhersage lädt …"
                         // die ersten zwei Stunden: stehendes Radarbild, das ins Modell übergeht
                         hold != null -> "DWD · weltweit Radar von ${hhmm.format(hold.time)}, dann Modell"
                         ui.worldRain[rainHour(f.time)] != null -> "DWD · weltweit Modell (ICON)"
@@ -1125,7 +1123,7 @@ private fun WorldTimeline(ui: RadarUi, hour: Int, playing: Boolean, temp: Boolea
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("${hhmm.format(hours[h])} · ${if (h == 0) "Jetzt" else "in $h Std."}", style = WType.small)
-            Text(if (!loaded) "Diese Stunde wird geladen …" else if (temp) (if (minMax) "Max/Min je Land" else "2 m Höhe · DWD (ICON)") else "Wind in 10 m Höhe, km/h · DWD (ICON)",
+            Text(if (temp) (if (minMax) "Max/Min je Land" else "2 m Höhe · DWD (ICON)") else "Wind in 10 m Höhe, km/h · DWD (ICON)",
                 style = WType.bodyDim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         if (temp) { Spacer(Modifier.width(8.dp)); MinMaxToggle(minMax, onMinMax) }

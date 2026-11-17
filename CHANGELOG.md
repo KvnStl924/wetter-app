@@ -1,6 +1,13 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.2.1 – Radar sofort da, ohne Lade-Hinweise
+- Radarbilder werden auf dem Handy gespeichert: Beim Öffnen der App (und im Vollbild-Radar) sind sofort die letzten Bilder da, auch wenn der DWD gerade langsam antwortet (am 17.11. über 12 Sekunden). Neue Bilder ersetzen sie, sobald sie geladen sind; alte werden gelöscht
+- Das aktuelle Radarbild wird für drei mögliche Zeitpunkte gleichzeitig abgefragt statt nacheinander; fehlt viel, wird schon nach einer Minute erneut versucht
+- Kartenkacheln (Grundkarte und weltweites Radar) rund um den Ort werden beim App-Start vorgeladen und auf dem Handy zwischengespeichert (höchstens 150 MB)
+- Keine Lade-Hinweise mehr: „Radar wird geladen …“, „Lade Radarbilder …“, „weltweite Vorhersage lädt …“ und „Diese Stunde wird geladen …“ sind weg
+- Doppelte Abrufe beim DWD weg: Die Live-Kacheln auf der Hauptseite nutzen nur noch die Radardaten des Vollbild-Radars
+
 ## 3.2.0 – Schneller Start: Standort sofort, Radar fertig vorgeladen
 - Fehler behoben: Beim Start sprang die App manchmal hunderte Male zwischen zwei Seiten hin und her (11. und 17.11.). Jetzt bestimmt nur noch eine Stelle, welche Seite gezeigt wird
 - „Mein Standort“ erscheint sofort: Die App nimmt den Standort, den das Handy schon kennt, und zeigt gleich das Wetter dafür. Die genaue Ortung läuft nebenher; ist man inzwischen mehr als 1,5 km woanders, lädt sie das Wetter neu. Der Ortsname wartet bei schlechtem Netz höchstens 4 Sekunden

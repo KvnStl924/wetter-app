@@ -215,4 +215,12 @@ class RadarTest {
         assertTrue(!oldRun.exists() && !past.exists())
         dir.deleteRecursively()
     }
+
+    /** Vorladen der Kartenkacheln: richtige Kachel um Köln, 3 × 3 Adressen. */
+    @Test fun prefetchTiles() {
+        assertEquals(66 to 42, de.schee.wetter.data.TileMask.tileAt(7, 50.94, 6.96))
+        val urls = de.schee.wetter.data.TileMask.around("https://t/{z}/{x}/{y}.pbf", 7, 50.94, 6.96)
+        assertEquals(9, urls.size)
+        assertTrue("https://t/7/66/42.pbf" in urls && "https://t/7/65/41.pbf" in urls && "https://t/7/67/43.pbf" in urls)
+    }
 }

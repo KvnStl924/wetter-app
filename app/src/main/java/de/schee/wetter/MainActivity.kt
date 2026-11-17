@@ -46,6 +46,13 @@ class MainActivity : ComponentActivity() {
                 val radarVm = viewModel<de.schee.wetter.ui.radar.RadarViewModel>()
                 val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
                 val weatherVm = viewModel<WeatherViewModel>()
+                // Kartenkacheln um den gezeigten Ort vorladen, sobald er feststeht (gerundet: nicht bei jedem Meter neu)
+                val homeKey = weather.place?.let { "%.1f,%.1f".format(java.util.Locale.US, it.lat, it.lon) }
+                androidx.compose.runtime.LaunchedEffect(homeKey) {
+                    val p = weather.place ?: return@LaunchedEffect
+                    de.schee.wetter.ui.radar.RadarViewModel.home = p.lat to p.lon
+                    radarVm.prefetchTiles()
+                }
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                         radarVm.preload()

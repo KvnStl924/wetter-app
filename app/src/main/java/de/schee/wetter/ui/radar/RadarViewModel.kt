@@ -73,6 +73,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         // Solange die App lebt: Zwischenspeicher im Speicher (zusätzlich liegen Weltdaten als Datei im Cache).
         private var cache: RadarUi? = null
         private var radarAt = 0L
+        /** Ort für das Vorladen der Kartenkacheln (Mein Standort bzw. gezeigter Ort); null = unbekannt. */
+        @Volatile var home: Pair<Double, Double>? = null
         private var cloudsAt = 0L
         private var strikesAt = 0L
         /** Letzter Versuch Regen-Vorhersage bzw. Stunden Temperatur/Wind (nicht jede Minute erneut probieren, wenn der DWD etwas noch nicht hat). */
@@ -86,30 +88,73 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- Regen (DWD + RainViewer)
 
+    // Radarbilder liegen auch auf dem Handy (Ordner cache/radar): Beim nächsten Öffnen sind sie sofort da, statt dass
+    // unten „Radar wird geladen …“ steht, bis der DWD antwortet (Kevin am 17.11.2026 – der DWD brauchte da über 12 s).
+    private val radarDir get() = java.io.File(getApplication<Application>().cacheDir, "radar").apply { mkdirs() }
+    private fun fileOf(f: RadarData.Frame) = java.io.File(radarDir, "${f.time.epochSecond}_${f.kind.name}.png")
+
+    /** Gespeicherte Bilder zeigen (höchstens 2 Stunden alt), solange noch nichts im Speicher ist. */
+    private fun restore() {
+        if (_ui.value.frames.isNotEmpty()) return
+        val newest = radarDir.listFiles()?.mapNotNull { f ->
+            f.name.removeSuffix(".png").split('_').takeIf { it.size == 2 && it[1] == RadarData.Kind.RADAR.name }?.get(0)?.toLongOrNull()
+        }?.maxOrNull() ?: return
+        val latest = Instant.ofEpochSecond(newest)
+        if (java.time.Duration.between(latest, Instant.now()).toMinutes() > 120) return
+        val frames = RadarData.frames(latest)
+        val nowIndex = frames.indexOfFirst { it.minutes == 0 }
+        val bytes = frames.indices.mapNotNull { i -> fileOf(frames[i]).takeIf { it.exists() }?.let { f -> runCatching { i to f.readBytes() }.getOrNull() } }.toMap()
+        val nowBytes = bytes[nowIndex] ?: return
+        val cov = runCatching { RadarData.coverageOf(nowBytes) }.getOrNull()
+        RadarData.coverage = cov
+        set { if (it.frames.isNotEmpty()) it else it.copy(frames = frames, bytes = bytes, nowIndex = nowIndex, coverage = cov, error = null) }
+        AppLog.data("Radar: ${bytes.size} gespeicherte Bilder sofort gezeigt (jüngste Messung $latest)")
+    }
+
+    /** Kartenkacheln um [home] vorladen (z. B. sobald der Standort feststeht). */
+    fun prefetchTiles() {
+        val (lat, lon) = home ?: return
+        viewModelScope.launch { runCatching { de.schee.wetter.data.TileMask.prefetch(getApplication(), lat, lon, _ui.value.rainViewer) } }
+    }
+
+    /** Gespeicherte Bilder, die nicht mehr in der Zeitleiste sind, löschen. */
+    private fun pruneRadar(frames: List<RadarData.Frame>) {
+        val keep = frames.map { fileOf(it).name }.toSet()
+        radarDir.listFiles()?.forEach { if (it.name !in keep) it.delete() }
+    }
+
     fun load() {
         if (job?.isActive == true) return
         if (_ui.value.frames.isNotEmpty() && System.currentTimeMillis() - radarAt < 5 * 60_000) return
         job = viewModelScope.launch(Dispatchers.IO) {
             val started = System.currentTimeMillis()
-            // Jüngste Messung finden: geschätzte Zeit, sonst 5 bzw. 10 Minuten früher.
-            var latest = RadarData.latestGuess(Instant.now())
-            var nowBytes: ByteArray? = null
-            for (i in 0 until 3) {
-                nowBytes = runCatching { RadarData.fetch(RadarData.Frame(latest, 0, RadarData.Kind.RADAR)) }.getOrNull()
-                if (nowBytes != null) break
-                latest = latest.minusSeconds(300)
+            restore()
+            // Weltweites Radar (RainViewer) gleichzeitig abfragen
+            val rvLoad = async { runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList()) }
+            // Jüngste Messung finden: geschätzte Zeit, 5 und 10 Minuten früher – alle drei gleichzeitig (bis 3.2.0
+            // nacheinander: hing der DWD, dauerte allein das bis zu einer Minute).
+            val guess = RadarData.latestGuess(Instant.now())
+            val tries = (0 until 3).map { k ->
+                val t = guess.minusSeconds(300L * k)
+                t to async { runCatching { RadarData.fetch(RadarData.Frame(t, 0, RadarData.Kind.RADAR)) }.getOrNull() }
             }
+            var latest = guess
+            var nowBytes: ByteArray? = null
+            for ((t, d) in tries) { val b = d.await(); if (b != null) { latest = t; nowBytes = b; break } }
+            tries.forEach { it.second.cancel() }
             if (nowBytes == null) {
-                AppLog.data("Radar: aktuelles Bild nicht erreichbar")
-                set { it.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.") }
+                AppLog.data("Radar: aktuelles Bild nicht erreichbar (${System.currentTimeMillis() - started} ms)" + if (_ui.value.frames.isNotEmpty()) " – gezeigt werden die letzten Bilder" else "")
+                // Hinweis nur, wenn es gar nichts zu zeigen gibt; neuer Versuch beim nächsten Vorladen (jede Minute)
+                set { if (it.frames.isEmpty()) it.copy(error = "Das Radar des Deutschen Wetterdienstes ist gerade nicht erreichbar.") else it }
                 return@launch
             }
             // Messgebiet des DWD-Radars – vor den RainViewer-Kacheln, die damit für die Vorhersage geleert werden
             val cov = runCatching { RadarData.coverageOf(nowBytes) }.getOrNull()
             RadarData.coverage = cov
-            val rv = runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
+            val rv = rvLoad.await()
             val frames = RadarData.frames(latest)
             val nowIndex = frames.indexOfFirst { it.minutes == 0 }
+            fileOf(frames[nowIndex]).let { f -> runCatching { f.writeBytes(nowBytes) } }
             // Aktualisieren (alle 5 Minuten bei offener App): Bilder vom letzten Mal bleiben sichtbar, bis die neuen
             // da sind – das Radar ist so nie „leer am Laden“ (Kevin am 17.11.2026). Gemessene Bilder ändern sich nicht
             // mehr und werden nicht neu geladen; Bilder, die aus der Zeitleiste fallen, werden verworfen.
@@ -120,6 +165,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             set { it.copy(frames = frames, bytes = bytes, nowIndex = nowIndex, error = null, rainViewer = rv.ifEmpty { it.rainViewer }, coverage = cov) }
             val measured = kept.filter { (i, v) -> frames[i].kind == RadarData.Kind.RADAR && v.first == RadarData.Kind.RADAR }.keys
             if (kept.isNotEmpty()) AppLog.data("Radar: ${measured.size} gemessene Bilder vom letzten Mal übernommen")
+            // Kartenkacheln rund um den Ort vorladen (Grundkarte + weltweites Radar), damit auch die Karte sofort steht
+            home?.let { (lat, lon) -> launch { de.schee.wetter.data.TileMask.prefetch(getApplication(), lat, lon, _ui.value.rainViewer) } }
             // Reihenfolge: von „Jetzt“ aus abwechselnd vor und zurück, damit das Abspielen schnell beginnen kann.
             val order = frames.indices.filter { it != nowIndex && it !in measured }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
             val gate = Semaphore(4)
@@ -128,15 +175,17 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
                 async {
                     gate.withPermit {
                         val b = runCatching { RadarData.fetch(frames[i]) }.getOrNull()
-                        if (b == null) missing.incrementAndGet()
+                        if (b == null) missing.incrementAndGet() else runCatching { fileOf(frames[i]).writeBytes(b) }
                         // nicht geladen: das Bild vom letzten Mal behalten, falls es eins gibt
                         set { if (b == null && it.bytes[i] != null) it else it.copy(bytes = it.bytes + (i to b)) }
                     }
                 }
             }.awaitAll()
+            pruneRadar(frames)
             val kb = _ui.value.bytes.values.sumOf { it?.size ?: 0 } / 1024
-            AppLog.data("Radar: ${order.size + 1 - missing.get()}/${order.size + 1} Bilder neu geladen (${System.currentTimeMillis() - started} ms, $kb kB im Speicher, jüngste Messung $latest)")
-            radarAt = System.currentTimeMillis()
+            AppLog.data("Radar: ${order.size + 1 - missing.get()}/${order.size + 1} Bilder neu geladen (${System.currentTimeMillis() - started} ms, $kb kB, jüngste Messung $latest)")
+            // fehlte viel (DWD hakte), schon in einer Minute erneut versuchen statt erst in fünf
+            radarAt = System.currentTimeMillis() - if (missing.get() > 5) 4 * 60_000 else 0
         }
     }
 

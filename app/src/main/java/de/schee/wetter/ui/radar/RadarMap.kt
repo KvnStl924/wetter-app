@@ -352,7 +352,7 @@ fun RadarMap(
 
     val view = remember {
         MapLibre.getInstance(context)
-        de.schee.wetter.data.TileMask.install()
+        de.schee.wetter.data.TileMask.install(context)
         // In der Kachel als TextureView, damit die Karte beim Scrollen der Hauptseite sauber mitläuft.
         val opts = org.maplibre.android.maps.MapLibreMapOptions.createFromAttributes(context).textureMode(mini)
         MapView(context, opts).apply { onCreate(null) }
