@@ -123,12 +123,19 @@ object Countries {
         // Fläche fehlt im Gitter → klein
     }
 
-    /** Höchste und tiefste Temperatur über Fläche und Orte des Landes (zur gezeigten Stunde), null ohne Werte. */
+    /**
+     * Höchste und tiefste Temperatur des Landes (zur gezeigten Stunde), null ohne Werte.
+     * Nur aus Städten (Kevin am 17.11.2026: Frankreich und Italien zeigten 1° – Gipfelwerte aus den Alpen, nicht
+     * das, was man im Land erlebt): erst Städte ab 15 000 Einwohnern – die liegen fast alle unter 1000 m –, bei zu
+     * wenigen ab 2000, dann alle Orte, zuletzt die Fläche.
+     */
     fun extremes(c: Index, k: Int, places: Places.Index, ww: WorldWeather): Pair<Double, Double>? {
         var max = Double.NEGATIVE_INFINITY; var min = Double.POSITIVE_INFINITY
         fun take(t: Double) { if (t.isNaN()) return; if (t > max) max = t; if (t < min) min = t }
-        for (cell in c.cells[k]) take(ww.tempAt(c.cellLat(cell), c.cellLon(cell)))
-        for (i in c.members[k]) take(ww.tempAt(places.lat[i].toDouble(), places.lon[i].toDouble()))
+        val m = c.members[k]
+        val use = listOf(15_000, 2_000, 0).map { p -> m.filter { places.pop[it] >= p } }.firstOrNull { it.size >= 3 } ?: m.toList()
+        for (i in use) take(ww.tempAt(places.lat[i].toDouble(), places.lon[i].toDouble()))
+        if (max == Double.NEGATIVE_INFINITY) for (cell in c.cells[k]) take(ww.tempAt(c.cellLat(cell), c.cellLon(cell)))
         return if (max == Double.NEGATIVE_INFINITY) null else max to min
     }
 }

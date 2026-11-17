@@ -66,6 +66,8 @@ object TileMask : Interceptor {
             val age = when {
                 url.host.endsWith("rainviewer.com") && url.encodedPath.endsWith(".png") -> 2 * 3600
                 url.host == "tiles.openfreemap.org" && url.encodedPath.endsWith(".pbf") -> 14 * 24 * 3600
+                // Höhendaten fürs Relief ändern sich nie
+                url.host == "s3.amazonaws.com" && url.encodedPath.startsWith("/elevation-tiles-prod/") -> 90 * 24 * 3600
                 else -> return resp
             }
             return resp.newBuilder().removeHeader("Pragma").removeHeader("Expires")

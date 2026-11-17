@@ -16,8 +16,11 @@ import kotlin.math.roundToInt
 object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/dark"
 
+    /** Höhendaten für das Relief (AWS Open Data „Terrain Tiles“, Terrarium-Kodierung, frei nutzbar). */
+    const val TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+
     fun load(context: Context): String? {
-        val cache = File(context.cacheDir, "map_style_dark_v4.json")
+        val cache = File(context.cacheDir, "map_style_dark_v5.json")
         if (cache.exists() && System.currentTimeMillis() - cache.lastModified() < 24 * 3600_000L) {
             return runCatching { cache.readText() }.getOrNull()
         }
@@ -52,11 +55,55 @@ object MapStyle {
             val paint = l.optJSONObject("paint") ?: org.json.JSONObject().also { l.put("paint", it) }
             when (id) {
                 "background" -> paint.put("background-color", "rgb(40,43,48)")
-                "water" -> paint.put("fill-color", "rgb(22,28,36)")
                 "landcover_ice_shelf", "landcover_glacier" -> { paint.put("fill-color", "rgb(52,56,62)"); paint.put("fill-opacity", 0.6) }
-                "waterway" -> { paint.put("line-color", "rgb(26,33,42)"); l.put("minzoom", 7) }
-                "boundary_state" -> { paint.put("line-color", "rgb(98,104,114)"); l.put("minzoom", 5) }
-                "boundary_country_z0-4", "boundary_country_z5-" -> paint.put("line-color", "rgb(150,156,166)")
+                // Flüsse (Kevin am 17.11.2026: Orientierung auf der Temperaturkarte): große Flüsse schon weit
+                // draußen als dünne dunkle Linie, Bäche und Kanäle erst beim Hineinzoomen
+                "waterway" -> {
+                    l.remove("minzoom"); l.put("minzoom", 4)
+                    paint.put("line-color", "rgb(14,22,34)")
+                    paint.put("line-opacity", org.json.JSONArray("[\"step\",[\"zoom\"],[\"match\",[\"get\",\"class\"],\"river\",0.85,0],8,0.85]"))
+                    paint.put("line-width", org.json.JSONArray("[\"interpolate\",[\"linear\"],[\"zoom\"],4,0.5,7,1.0,10,1.8,13,3]"))
+                }
+                // Grenzen deutlich (Kevin am 17.11.2026: „man sieht nur sehr schwierig die Länder“): Länder hell mit
+                // dunklem Schatten daneben – lesbar auf jeder Farbe; Bundesländer zart gestrichelt
+                "boundary_state" -> {
+                    l.put("minzoom", 5)
+                    paint.put("line-color", "rgba(232,236,242,0.4)")
+                    paint.put("line-dasharray", org.json.JSONArray("[3,2.5]"))
+                    paint.put("line-blur", 0)
+                    paint.put("line-width", org.json.JSONArray("[\"interpolate\",[\"linear\"],[\"zoom\"],5,0.6,9,1.1,12,1.5]"))
+                }
+                "boundary_country_z0-4", "boundary_country_z5-" -> {
+                    val casing = org.json.JSONObject(l.toString())
+                    casing.put("id", "$id-casing")
+                    casing.put("paint", org.json.JSONObject().apply {
+                        put("line-color", "rgba(0,0,0,0.5)"); put("line-blur", 1.2)
+                        put("line-width", org.json.JSONArray("[\"interpolate\",[\"linear\"],[\"zoom\"],2,2.2,5,3.4,8,4.8,12,6.5]"))
+                    })
+                    kept.put(casing)
+                    paint.put("line-color", "rgba(242,244,248,0.92)")
+                    paint.put("line-blur", 0)
+                    paint.put("line-width", org.json.JSONArray("[\"interpolate\",[\"linear\"],[\"zoom\"],2,0.8,5,1.3,8,1.9,12,2.6]"))
+                }
+                // Gelände-Relief direkt unter dem Wasser (Kevin am 17.11.2026): Gebirge und Täler als leichter
+                // Schatten über der Temperaturfarbe; Höhendaten frei von AWS (Terrain Tiles, Mapzen)
+                "water" -> {
+                    paint.put("fill-color", "rgb(22,28,36)")
+                    style.getJSONObject("sources").put("terrain", org.json.JSONObject().apply {
+                        put("type", "raster-dem"); put("encoding", "terrarium"); put("tileSize", 256); put("maxzoom", 11)
+                        put("tiles", org.json.JSONArray().put(TERRAIN_TILES))
+                    })
+                    kept.put(org.json.JSONObject().apply {
+                        put("id", "hillshade"); put("type", "hillshade"); put("source", "terrain")
+                        put("paint", org.json.JSONObject().apply {
+                            put("hillshade-exaggeration", 0.45)
+                            put("hillshade-shadow-color", "rgba(0,0,0,0.55)")
+                            put("hillshade-highlight-color", "rgba(255,255,255,0.20)")
+                            put("hillshade-accent-color", "rgba(0,0,0,0)")
+                            put("hillshade-illumination-direction", 315)
+                        })
+                    })
+                }
             }
             if (id.startsWith("place_")) l.optJSONObject("layout")?.put("text-field", name)
             // Ländernamen in derselben Schrift wie die Werte der App, dezent (keine zweite Schriftart)

@@ -1,6 +1,15 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.5.0 – Karte übersichtlicher: Grenzen, Relief, Flüsse, Orts-Marken
+- Ländergrenzen hell mit dunklem Schatten – auf jeder Temperaturfarbe gut zu sehen; Bundesländer zart gestrichelt
+- Gelände-Relief: Gebirge und Täler als leichter Schatten über der Temperatur (Höhendaten: Terrain Tiles, Mapzen/AWS)
+- Große Flüsse schon weit herausgezoomt als dünne dunkle Linien, kleinere beim Hineinzoomen
+- Orte: eine Marke „Köln 12°“ statt Name oben und Wert darunter; mehr Abstand zwischen den Marken; Großstädte größer
+- Mindestgröße je nach Zoom: weit draußen nur Städte ab 200 000 Einwohnern, dann 80 000, 30 000, 10 000, 4000, ganz nah ab 1000; Dörfer erst ganz nah
+- Kälte- und Wärmepunkte mit Namen („bei Chamonix 1°“) statt einer Zahl ohne Ort
+- Max/Min je Land nur noch aus Städten (ab 15 000 Einwohnern, sonst kleinere) statt auch aus Berggipfeln
+
 ## 3.4.0 – Radar aus einem Guss
 - Bis „Jetzt“ zeigt die Karte überall nur noch das weltweite Radar (RainViewer, in Deutschland mit den Messungen des DWD) – ein einheitliches Bild ohne Kanten und Streifen an den Grenzen, auch auf der Radar-Kachel der Hauptseite. Gibt es zu einem Zeitpunkt kein weltweites Bild, springt das DWD-Bild ein
 - Die DWD-Daten laufen weiter im Hintergrund: Regen-Vorhersage der nächsten 2 Stunden, „Regen in … Min.“, Regenkurve und Zugrichtung bleiben so genau wie bisher

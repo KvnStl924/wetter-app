@@ -53,7 +53,12 @@ private fun worldCopy(side: Int) = quad(-180.0 + side * 360, 180.0 + side * 360,
 data class MapLabel(val lat: Double, val lon: Double, val value: String?, val name: String?, val kind: Int, val color: Int? = null,
                     val value2: String? = null, val color2: Int? = null,
                     /** Land: kleines Land → kleinere Schrift und Pille. */
-                    val small: Boolean = false)
+                    val small: Boolean = false,
+                    /** Schriftgröße des Namens in der Orts-Marke (sp). */
+                    val textSize: Float = 11f) {
+    /** Name und Wert in EINER Marke („Köln 12°“): Orte und benannte Hotspots mit farbigem Wert. */
+    val chip: Boolean get() = (kind == 3 || kind == 0) && name != null && value != null && color != null && value2 == null
+}
 
 /** Schrift und Pille einer Länder-Beschriftung (kind 4). */
 internal fun countryStyle(l: MapLabel) = if (l.small) COUNTRY_SMALL else COUNTRY_BIG
@@ -71,6 +76,7 @@ private fun pillName(c: Int, text: String) = "v_%06x_%s".format(pillColor(c) and
 private fun pillName(l: MapLabel): String? {
     val v = l.value ?: return null; val c = l.color ?: return null
     val v2 = l.value2; val c2 = l.color2
+    if (l.chip) return "c%d_%.0f_%06x_%s_%s".format(l.kind, l.textSize * 10, pillColor(c) and 0xFFFFFF, v, l.name)
     return if (v2 != null && c2 != null) "r%s_%06x_%s_%06x_%s".format(if (l.small) "s" else "b", pillColor(c) and 0xFFFFFF, v, pillColor(c2) and 0xFFFFFF, v2) else pillName(c, v)
 }
 
@@ -78,7 +84,37 @@ private fun pillName(l: MapLabel): String? {
 internal fun labelBitmap(l: MapLabel, density: Float): Bitmap? {
     val v = l.value ?: return null; val c = l.color ?: return null
     val v2 = l.value2; val c2 = l.color2
+    if (l.chip) return chipBitmap(l.name!!, v, c, density, l.textSize, dimName = l.kind == 0)
     return if (v2 != null && c2 != null) rangeBitmap(v, c, v2, c2, density * countryStyle(l).pill) else pillBitmap(v, c, density)
+}
+
+/**
+ * Orts-Marke „Köln 12°“ (Kevin am 17.11.2026: eine Marke statt Name oben und Pille unten): dunkle Pille, Name weiß
+ * (bei Hotspots „bei …“ grau), Wert in seiner Farbe, Rand dezent in der Wertfarbe.
+ */
+internal fun chipBitmap(name: String, value: String, c: Int, density: Float, textSize: Float = 11f, dimName: Boolean = false): Bitmap {
+    val bold = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    val np = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = if (dimName) 0xFFB4BCC8.toInt() else 0xFFF4F6F8.toInt(); this.textSize = textSize * density
+        typeface = if (dimName) android.graphics.Typeface.DEFAULT else bold
+    }
+    val vp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = pillColor(c, 0.62); this.textSize = (textSize + .5f) * density; typeface = bold }
+    val padX = 7f * density; val gap = 5f * density; val stroke = 1.1f * density
+    val h = (textSize + 8.5f) * density
+    val wn = np.measureText(name); val wv = vp.measureText(value)
+    val w = padX + wn + gap + wv + padX
+    val bmp = Bitmap.createBitmap(Math.ceil(w.toDouble()).toInt(), Math.ceil(h.toDouble()).toInt(), Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val rect = android.graphics.RectF(stroke / 2, stroke / 2, w - stroke / 2, h - stroke / 2)
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6121821.toInt() })
+    cv.drawRoundRect(rect, h / 2, h / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = (pillColor(c) and 0xFFFFFF) or (0x99 shl 24); style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke
+    })
+    val fm = vp.fontMetrics
+    val base = h / 2 - (fm.ascent + fm.descent) / 2
+    cv.drawText(name, padX, base, np)
+    cv.drawText(value, padX + wn + gap, base, vp)
+    return bmp
 }
 
 /**
@@ -127,6 +163,7 @@ internal fun labelFeatures(labels: List<MapLabel>) = FeatureCollection.fromFeatu
         l.value?.let { addStringProperty("value", it) }
         l.name?.let { addStringProperty("name", it) }
         pillName(l)?.let { addStringProperty("pill", it) }
+        if (l.chip) addNumberProperty("chip", 1)
         // Schriftgröße immer mitgeben: fehlte sie, machte die Karte daraus Größe 0 – alle Ortsnamen waren weg (3.0.2, behoben 3.0.3)
         addNumberProperty("ts", if (l.kind == 4) countryStyle(l).text else LABEL_TEXT)
     }
@@ -223,11 +260,14 @@ private fun addOverlayLayers(s: Style) {
         // eigener Ort: Name über, Wert unter dem blauen Standortpunkt (der sonst den Wert verdeckte, 0.6.4)
         PropertyFactory.textOffset(Expression.match(kind, Expression.literal(arrayOf(0f, -0.35f)), Expression.stop(2, Expression.literal(arrayOf(0f, -0.95f))))),
         PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(false),
-    ).withFilter(Expression.all(Expression.has("name"), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
+    ).withFilter(Expression.all(Expression.has("name"), Expression.not(Expression.has("chip")), Expression.any(withPill, Expression.eq(kind, Expression.literal(3))))))
     s.addLayer(SymbolLayer("lbl-value", "labels").withProperties(
         PropertyFactory.iconImage(Expression.get("pill")),
-        PropertyFactory.iconAnchor(Expression.match(kind, Expression.literal(Property.ICON_ANCHOR_TOP), Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
-        PropertyFactory.iconOffset(Expression.match(kind, Expression.literal(arrayOf(0f, 4f)), Expression.stop(0, Expression.literal(arrayOf(0f, 0f))), Expression.stop(2, Expression.literal(arrayOf(0f, 12f))))),
+        // Orts-Marken („Köln 12°“) über dem Punkt, Hotspots mittig, sonst die Pille unter dem Namen
+        PropertyFactory.iconAnchor(Expression.match(kind, Expression.switchCase(Expression.has("chip"), Expression.literal(Property.ICON_ANCHOR_BOTTOM), Expression.literal(Property.ICON_ANCHOR_TOP)),
+            Expression.stop(0, Expression.literal(Property.ICON_ANCHOR_CENTER)))),
+        PropertyFactory.iconOffset(Expression.match(kind, Expression.switchCase(Expression.has("chip"), Expression.literal(arrayOf(0f, -4f)), Expression.literal(arrayOf(0f, 4f))),
+            Expression.stop(0, Expression.literal(arrayOf(0f, 0f))), Expression.stop(2, Expression.literal(arrayOf(0f, 12f))))),
         PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(false),
     ).withFilter(withPill))
     // ohne Farbe (z. B. eigener Ort bei Regen): schlichter Wert über dem Punkt
@@ -486,7 +526,9 @@ fun RadarMap(
                 // Zwei Varianten der Farbfläche: unter dem Meer (nur Land eingefärbt) oder über dem Meer.
                 val firstLine = s.layers.firstOrNull { it.id == "waterway" || it.id.startsWith("boundary") }?.id ?: labels
                 fun below(l: RasterLayer, id: String?) { if (id != null && s.getLayer(id) != null) s.addLayerBelow(l, id) else s.addLayer(l) }
-                listOf(raster("field-land", "field", 1f), raster("field2-land", "field2", 1f)).forEach { below(it, "water") }
+                // Temperatur (nur Land) unter dem Relief, damit Gebirge und Täler darauf sichtbar sind
+                val landBelow = if (s.getLayer("hillshade") != null) "hillshade" else "water"
+                listOf(raster("field-land", "field", 1f), raster("field2-land", "field2", 1f)).forEach { below(it, landBelow) }
                 // Dunkler Schleier über dem Meer (nur bei Wind): Wind bleibt sichtbar, Küsten heben sich ab (Kevin am 09.11.2026)
                 val waterSrc = (s.getLayer("water") as? org.maplibre.android.style.layers.FillLayer)?.sourceId
                 if (waterSrc != null) {

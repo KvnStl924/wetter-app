@@ -381,7 +381,7 @@ fun RadarScreen(
             // Pflicht-Quellenangabe der Karte (OpenStreetMap-Lizenz) und der Bilder – klein und blass statt „i“-Knopf
             Text(
                 buildString {
-                    append("© OpenStreetMap · OpenFreeMap")
+                    append("© OpenStreetMap · OpenFreeMap · Relief: Mapzen")
                     if (layer == RadarLayer.RAIN) append(" · RainViewer")
                     if (layer == RadarLayer.CLOUDS || lightning) append(" · © EUMETSAT")
                 },
@@ -890,7 +890,21 @@ internal fun rememberLabelsAsync(
 }
 
 /** Gewählte Stelle für eine Beschriftung. kind wie bei [MapLabel]. */
-internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int, val country: Int = -1, val small: Boolean = false)
+internal data class LabelPick(val lat: Double, val lon: Double, val name: String?, val kind: Int, val country: Int = -1, val small: Boolean = false,
+                              /** Einwohner (Orte aus der Ortsliste; 0 = unbekannt) – große Städte etwas größer beschriftet. */
+                              val pop: Int = 0)
+
+/** Schriftgröße einer Orts-Marke nach Einwohnern (Kevin am 17.11.2026: Großstädte hervorheben). */
+internal fun cityTextSize(pop: Int) = when { pop >= 500_000 -> 13f; pop >= 50_000 -> 12f; else -> 11f }
+
+/**
+ * Mindestgröße der gezeigten Orte je nach Ausschnitt (Breite in km) – Kevin am 17.11.2026: „unfassbar unübersichtlich“.
+ * Weit draußen nur Großstädte, beim Hineinzoomen nach und nach kleinere; Dörfer erst ganz nah.
+ */
+internal fun minPopulation(widthKm: Double) = when {
+    widthKm > 2500 -> 200_000; widthKm > 1200 -> 80_000; widthKm > 600 -> 30_000
+    widthKm > 300 -> 10_000; widthKm > 150 -> 4_000; else -> 1_000
+}
 
 /** Größe der Länder-Beschriftung (Max/Min): Schrift in sp, Pille als Faktor – kleine Länder kleiner (Kevin am 10.11.2026). */
 internal class CountryStyle(val text: Float, val pill: Float)
@@ -906,11 +920,19 @@ internal fun pickLabels(
         val out = mutableListOf<LabelPick>()
         // Platz jeder Beschriftung als Rechteck (Name oben, Pille unten) – nichts darf sich überlappen
         val boxes = ArrayList<FloatArray>()
-        val gap = 4 * density
+        // mehr Luft zwischen den Marken (vorher 4 dp – alles klebte aneinander)
+        val gap = 10 * density
         fun overlaps(b: FloatArray) = boxes.any { o -> b[0] < o[2] + gap && b[2] > o[0] - gap && b[1] < o[3] + gap && b[3] > o[1] - gap }
         fun inUi(b: FloatArray) = !mini && (b[1] < 84 * density || b[3] > idle.h - 234 * density || (b[2] > idle.w - 74 * density && b[3] > idle.h - 600 * density))
         // Breite schätzen: Name (≈ 7 dp je Zeichen in 12,5 sp fett) bzw. Pille (≈ 46 dp)
-        fun box(x: Float, y: Float, name: String?, kind: Int): FloatArray {
+        fun box(x: Float, y: Float, name: String?, kind: Int, pop: Int = 0): FloatArray {
+            // Orte mit Wert: EINE Marke „Köln 12°“ über dem Punkt (Name und Wert nebeneinander)
+            if (ww != null && (kind == 3 || kind == 0)) {
+                val ts = if (kind == 3) cityTextSize(pop) else 11f
+                val w = ((name?.length ?: 0) * .56f * ts + (if (temp) 30f else 56f) + 14f) * density
+                return if (kind == 0) floatArrayOf(x - w / 2, y - 10 * density, x + w / 2, y + 10 * density)
+                else floatArrayOf(x - w / 2, y - 25 * density, x + w / 2, y + 4 * density)
+            }
             val nameW = (name?.length ?: 0) * 6.8f * density + 4 * density
             val w = maxOf(nameW, (if (kind == 4) 96f else if (temp) 34f else 58f) * density)
             return when (kind) {
@@ -922,7 +944,7 @@ internal fun pickLabels(
         fun add(l: LabelPick): Boolean {
             val x = idle.x(l.lon); val y = idle.y(l.lat)
             if (!idle.visible(x, y)) return false
-            val b = box(x, y, l.name, l.kind)
+            val b = box(x, y, l.name, l.kind, l.pop)
             if (b[0] < 4 * density || b[2] > idle.w - 4 * density || inUi(b) || overlaps(b)) return false
             out += l; boxes += b; return true
         }
@@ -961,16 +983,20 @@ internal fun pickLabels(
         fix?.let { f -> val x = idle.x(f.lon); val y = idle.y(f.lat); boxes += floatArrayOf(x - 10 * density, y - 10 * density, x + 10 * density, y + 10 * density) }
         val ownName = place?.name?.substringBefore(" · ")
         // Orte nach Größe (GeoNames): füllt den freien Platz von groß nach klein – so dicht, wie es passt
+        val widthKm = (idle.east - idle.west) * 111.2 * kotlin.math.cos(Math.toRadians(((idle.north + idle.south) / 2).coerceIn(-80.0, 80.0)))
+        val minPop = minPopulation(widthKm)
         if (idx != null) {
             for (i in Places.inView(idx, idle.south, idle.north, idle.west, idle.east, limit = if (mini) 400 else 4000)) {
+                // nach Größe sortiert: ab hier nur noch kleinere Orte
+                if (idx.pop[i] < minPop) break
                 val n = idx.name(i); if (n == ownName) continue
-                add(L(idx.lat[i].toDouble(), idx.lon[i].toDouble(), n, 3))
-                if (out.size > 70) break
+                add(LabelPick(idx.lat[i].toDouble(), idx.lon[i].toDouble(), n, 3, pop = idx.pop[i]))
+                if (out.size > 45) break
             }
         }
-        // dazu Orte aus den Kartendaten (beim Hineinzoomen auch Dörfer unter 1000 Einwohnern)
+        // dazu Orte aus den Kartendaten (Dörfer unter 1000 Einwohnern) – nur ganz nah herangezoomt
         val taken = out.mapNotNull { it.name }.toHashSet()
-        if (idx != null) for (c in cities.sortedBy { it.rank }) if (c.name != ownName && c.name !in taken) add(L(c.lat, c.lon, c.name, 3))
+        if (idx != null && widthKm < 60) for (c in cities.sortedBy { it.rank }) if (c.name != ownName && c.name !in taken) add(L(c.lat, c.lon, c.name, 3))
         if (idx == null) {
             // Ortsliste noch nicht geladen: Großstädte der eingebauten Weltliste
             for (c in WorldCities.ALL.sortedBy { it.rank }) add(L(c.lat, c.lon, c.name, 3))
@@ -1003,11 +1029,27 @@ internal fun pickLabels(
                 if (!temp && max && c > 8) cand += H(i, j, c)
             }
             for (h in cand.sortedByDescending { it.score }.take(14)) {
-                add(L(idle.lat(h.j * stepPx), idle.lon(h.i * stepPx), null, 0))
+                // mit Namen des nächsten Orts (Kevin am 17.11.2026: „1°“ ohne Namen bei Genf sah wie ein Fehler aus)
+                val la = idle.lat(h.j * stepPx); val lo = idle.lon(h.i * stepPx)
+                add(L(la, lo, idx?.let { nearPlace(it, la, lo) }?.let { "bei $it" }, 0))
             }
         }
         return out
     }
+}
+
+/** Name des nächsten Orts (ab 1000 Einwohnern) im Umkreis von 40 km; null, wenn keiner. */
+internal fun nearPlace(idx: Places.Index, lat: Double, lon: Double, maxKm: Double = 40.0): String? {
+    val cosLat = kotlin.math.cos(Math.toRadians(lat))
+    val dLat = maxKm / 111.2
+    var best = -1; var bestD = maxKm * maxKm
+    for (i in 0 until idx.size) {
+        val a = idx.lat[i] - lat; if (a > dLat || a < -dLat) continue
+        val y = a * 111.2; val x = (idx.lon[i] - lon) * 111.2 * cosLat
+        val d = x * x + y * y
+        if (d < bestD) { bestD = d; best = i }
+    }
+    return if (best >= 0) idx.name(best) else null
 }
 
 /** Werte zur gewählten Stunde (ändern sich beim Abspielen, die Auswahl der Orte bleibt). */
@@ -1029,7 +1071,8 @@ internal fun labelValues(picks: List<LabelPick>, ww: WorldWeather?, temp: Boolea
             }
             // eigener Ort: Name ohne Zusatz („Saffig · Rheinland-Pfalz …“ → „Saffig“)
             val name = if (l.kind == 2) place?.name?.substringBefore(" · ")?.takeIf { color != null || !placeValue } else l.name
-            if (value == null && l.kind != 3 && !(l.kind == 2 && name != null)) null else MapLabel(l.lat, l.lon, value, name, l.kind, color)
+            if (value == null && l.kind != 3 && !(l.kind == 2 && name != null)) null
+            else MapLabel(l.lat, l.lon, value, name, l.kind, color, textSize = if (l.kind == 3) cityTextSize(l.pop) else 11f)
         }
     }
 }
@@ -1058,14 +1101,14 @@ private fun ComposeLabels(t: MapTransform, labels: List<MapLabel>) {
             drawCircle(Color.Black.copy(alpha = .6f), (if (l.kind == 2) 3.4f else 2.6f) * density, Offset(x, y), style = Stroke(1f))
         }
         androidx.compose.ui.layout.Layout(content = {
-            if (l.name != null && l.kind != 0) Text(l.name, style = ns)
+            if (l.name != null && l.kind != 0 && !l.chip) Text(l.name, style = ns)
             if (l.value != null && l.color != null) { val img = remember(l) { labelBitmap(l, density)!!.asImageBitmap() }; Image(img, null) }
         }) { ms, c ->
             val ps = ms.map { it.measure(c.copy(minWidth = 0, minHeight = 0)) }
             layout(t.w.toInt(), t.h.toInt()) {
                 var i = 0
-                if (l.name != null && l.kind != 0) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - (if (l.kind == 2) 11 else 4) * density).toInt()) }
-                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else y + (if (l.kind == 2) 12 else 4) * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
+                if (l.name != null && l.kind != 0 && !l.chip) { val n = ps[i++]; n.place((x - n.width / 2).toInt(), (y - n.height - (if (l.kind == 2) 11 else 4) * density).toInt()) }
+                if (i < ps.size) { val v = ps[i]; val top = if (l.kind == 0) y - v.height / 2 else if (l.chip) y - v.height - 4 * density else y + (if (l.kind == 2) 12 else 4) * density; v.place((x - v.width / 2).toInt(), top.toInt()) }
             }
         }
     }

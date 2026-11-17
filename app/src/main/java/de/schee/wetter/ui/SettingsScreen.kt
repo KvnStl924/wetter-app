@@ -105,7 +105,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Tile("Über") {
                 Text("Wetterdaten: Open-Meteo.com (CC BY 4.0) und Deutscher Wetterdienst (Open Data).", style = WType.bodyDim)
                 Text("Schrift: Inter (SIL Open Font License).", style = WType.bodyDim)
-                Text("Karte: OpenStreetMap-Mitwirkende, OpenFreeMap. Satellit: © EUMETSAT. Radar weltweit: RainViewer. Orte: GeoNames (CC BY 4.0).", style = WType.bodyDim)
+                Text("Karte: OpenStreetMap-Mitwirkende, OpenFreeMap. Satellit: © EUMETSAT. Radar weltweit: RainViewer. Relief: Terrain Tiles (Mapzen, AWS Open Data). Orte: GeoNames (CC BY 4.0).", style = WType.bodyDim)
             }
             Spacer(Modifier.height(24.dp))
         }
