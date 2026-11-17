@@ -119,6 +119,51 @@ internal fun chipBitmap(name: String, value: String, c: Int, density: Float, tex
     return bmp
 }
 
+/** Pin am wärmsten/kältesten Punkt: Titel, Wert, darunter Land und nächster Ort. */
+data class MapMarker(val lat: Double, val lon: Double, val title: String, val sub: String, val value: String, val color: Int, val isMax: Boolean)
+
+/**
+ * Pin „▲ Wärmster Punkt 24°“ / „▼ Kältester Punkt −44°“ mit Land und Ort darunter, Spitze und Punkt unten.
+ * Das Bild ist unten gleich hoch aufgefüllt, damit sein Mittelpunkt genau auf der Stelle sitzt.
+ */
+internal fun markerBitmap(m: MapMarker, density: Float): Bitmap {
+    val bold = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    val accent = pillColor(m.color, 0.5)
+    val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF4F6F8.toInt(); textSize = 12f * density; typeface = bold }
+    val vp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = accent; textSize = 13.5f * density; typeface = bold }
+    val sp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFB4BCC8.toInt(); textSize = 10.5f * density }
+    val title = (if (m.isMax) "▲ " else "▼ ") + m.title
+    val padX = 9f * density; val padY = 6f * density; val gap = 6f * density; val lineGap = 2f * density
+    val w1 = tp.measureText(title) + gap + vp.measureText(m.value)
+    val boxW = maxOf(w1, sp.measureText(m.sub)) + 2 * padX
+    val l1 = 15f * density; val l2 = 13f * density
+    val boxH = padY + l1 + lineGap + l2 + padY
+    val stem = 7f * density; val r = 5.5f * density; val stroke = 2f * density
+    val above = boxH + stem + r + stroke
+    val w = boxW + 2 * stroke; val h = 2 * above
+    val bmp = Bitmap.createBitmap(Math.ceil(w.toDouble()).toInt(), Math.ceil(h.toDouble()).toInt(), Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val cx = w / 2
+    val box = android.graphics.RectF(stroke, stroke, stroke + boxW, stroke + boxH)
+    val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xF0121821.toInt() }
+    val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = accent; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1.4f * density }
+    // Spitze vom Kasten zum Punkt
+    val tri = android.graphics.Path().apply {
+        moveTo(cx - 6f * density, box.bottom - 1f); lineTo(cx + 6f * density, box.bottom - 1f); lineTo(cx, box.bottom + stem); close()
+    }
+    cv.drawPath(tri, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = accent })
+    cv.drawRoundRect(box, 9f * density, 9f * density, fill)
+    cv.drawRoundRect(box, 9f * density, 9f * density, edge)
+    val b1 = box.top + padY + l1 - 3.5f * density
+    cv.drawText(title, box.left + padX, b1, tp)
+    cv.drawText(m.value, box.left + padX + tp.measureText(title) + gap, b1, vp)
+    cv.drawText(m.sub, box.left + padX, b1 + lineGap + l2, sp)
+    // Punkt genau in der Bildmitte = an der Stelle des Werts
+    cv.drawCircle(cx, above, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = accent })
+    cv.drawCircle(cx, above, r, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = android.graphics.Paint.Style.STROKE; strokeWidth = stroke })
+    return bmp
+}
+
 /**
  * Max/Min-Pille eines Landes: „▲ 24° │ ▼ 12°“ – Dreiecke und Zahlen je in ihrer Temperaturfarbe,
  * gleiche Höhe und Schrift wie die einfachen Pillen, Rand dezent weiß.
@@ -296,6 +341,10 @@ private fun addMeLayers(s: Style) {
     s.addLayer(org.maplibre.android.style.layers.CircleLayer("pick-ring", "pick").withProperties(
         PropertyFactory.circleRadius(9f), PropertyFactory.circleColor("rgba(255,255,255,0.18)"),
         PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2.2f)))
+    s.addSource(GeoJsonSource("marker"))
+    s.addLayer(SymbolLayer("marker", "marker").withProperties(
+        PropertyFactory.iconImage("marker-img"), PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+        PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
     s.addLayer(org.maplibre.android.style.layers.CircleLayer("me-acc", "me").withProperties(
         PropertyFactory.circleRadius(0f), PropertyFactory.circleColor("#0A84FF"), PropertyFactory.circleOpacity(.14f), PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)))
     s.addLayer(org.maplibre.android.style.layers.CircleLayer("me-pulse", "me").withProperties(
@@ -376,6 +425,8 @@ fun RadarMap(
     warnings: Boolean = false,
     /** Angetippter Punkt (weißer Ring). */
     pick: Pair<Double, Double>? = null,
+    /** Pin am wärmsten/kältesten Punkt (bleibt beim Zoomen stehen). */
+    marker: MapMarker? = null,
     /** Tippen (lang = true) auf die Karte. */
     onTap: ((Double, Double, Boolean) -> Unit)? = null,
     /** Max/Min eines Landes angetippt: Stelle des Werts, true = Höchstwert, Land. */
@@ -696,6 +747,13 @@ fun RadarMap(
         style?.getLayer("warn-layer")?.setProperties(PropertyFactory.visibility(if (warnings) Property.VISIBLE else Property.NONE))
     }
     LaunchedEffect(style, motion) { (style?.getSource("motion") as? GeoJsonSource)?.setGeoJson(motionFeatures(motion)) }
+    LaunchedEffect(style, marker) {
+        val s = style ?: return@LaunchedEffect
+        val m = marker
+        if (m != null) s.addImage("marker-img", markerBitmap(m, density))
+        (s.getSource("marker") as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
+            listOfNotNull(m?.let { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) })))
+    }
     LaunchedEffect(style, pick) {
         (style?.getSource("pick") as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
             listOfNotNull(pick?.let { Feature.fromGeometry(Point.fromLngLat(it.second, it.first)) })))
@@ -735,7 +793,8 @@ fun RadarMap(
     LaunchedEffect(flyTick) {
         if (flyTick == 0) return@LaunchedEffect
         val c = flyTo ?: return@LaunchedEffect
-        map?.animateCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(LatLng(c.first, c.second), maxOf(map?.cameraPosition?.zoom ?: 8.0, 8.0)), 900)
+        // nur hinschieben, Zoom bleibt (Kevin am 17.11.2026: ganz hineingezoomt fehlte die Übersicht)
+        map?.animateCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLng(LatLng(c.first, c.second)), 700)
     }
 
     LaunchedEffect(centerTick) {

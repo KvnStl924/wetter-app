@@ -1,6 +1,10 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.7.0 – Pin am wärmsten bzw. kältesten Punkt
+- Max/Min antippen setzt einen Pin an die Stelle des Werts („▼ Kältester Punkt −44°“, darunter Land und nächster Ort bzw. „abgelegen“). Die Karte schiebt sich nur dorthin und zoomt nicht mehr hinein – so bleibt die Übersicht
+- Der Pin bleibt beim Zoomen, Verschieben und Tippen stehen; er verschwindet beim Wechsel der Ansicht, beim Ausschalten von Max/Min oder beim Verlassen des Radars
+
 ## 3.6.1 – Max/Min passen wieder zur Karte
 - Max/Min je Land wieder aus der ganzen Landesfläche (Raster 0,2°) und allen Orten statt nur aus Städten: In 3.5.0/3.6.0 zeigte z. B. Grönland −8°, die Karte im Inlandeis aber −43°. Wo ein Wert herrscht, zeigt jetzt das Antippen
 - Die Punkt-Karte nach dem Antippen zeigt die Temperatur der gewählten Stunde (vorher immer die von jetzt)

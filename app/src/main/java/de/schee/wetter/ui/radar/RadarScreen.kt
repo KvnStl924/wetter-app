@@ -165,6 +165,9 @@ fun RadarScreen(
     var flyTick by remember { mutableIntStateOf(0) }
     var flyTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var pendingPick by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    // Pin am wärmsten/kältesten Punkt (Kevin am 17.11.2026): bleibt beim Zoomen und Tippen stehen,
+    // weg beim Wechsel der Ansicht oder beim Verlassen des Radars
+    var extremePin by remember { mutableStateOf<ExtremePin?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val units = remember { de.schee.wetter.data.Units.from(context) }
     // Max/Min je Land statt Werten an jeder Stadt (Kevin am 10.11.2026), bleibt gemerkt
@@ -176,6 +179,7 @@ fun RadarScreen(
     fun pick(l: RadarLayer) {
         haptic(de.schee.wetter.ui.Haptics.Kind.SNAP)
         layer = if (layer == l) null else l
+        extremePin = null
         if (layer != RadarLayer.RAIN && layer != null) lightning = false
         playing = false
         AppLog.tap("Vollbild-Radar → ${l.label} ${if (layer == l) "an" else "aus"}")
@@ -342,10 +346,19 @@ fun RadarScreen(
                 labels = labels, strikes = if (lightning) ui.strikes else emptyList(), strikesNewest = ui.strikesNewest,
                 fix = fix, motion = if (showRain && (frame?.minutes ?: 0) <= 120) motion else null, warnings = warnings,
                 pick = picked?.let { it.lat to it.lon },
+                marker = extremePin?.takeIf { layer == RadarLayer.TEMP }?.let { m ->
+                    val t = ww?.tempAt(m.lat, m.lon)?.takeUnless { it.isNaN() } ?: m.value
+                    MapMarker(m.lat, m.lon, if (m.isMax) "Wärmster Punkt" else "Kältester Punkt",
+                        listOfNotNull(m.country.ifEmpty { null }, m.near?.let { "bei $it" } ?: "abgelegen").joinToString(" · "),
+                        "${units.tNum(t)}°", tempColorMap(t), m.isMax)
+                },
                 onTap = { la, lo, long -> tapped(la, lo, long) },
-                // Max/Min antippen (Kevin am 17.11.2026): zur Stelle des Werts fliegen und sie wie angetippt zeigen
+                // Max/Min antippen (Kevin am 17.11.2026): Pin an die Stelle setzen und die Karte dorthin schieben –
+                // ohne hineinzuzoomen, damit man sieht, wo im Land das ist
                 onExtreme = { la, lo, isMax, country ->
                     AppLog.tap("Vollbild-Radar → Max/Min ${if (isMax) "Höchstwert" else "Tiefstwert"} $country angetippt")
+                    val near = de.schee.wetter.data.Places.index.value?.let { nearPlace(it, la, lo, 25.0) }
+                    extremePin = ExtremePin(la, lo, isMax, country, near, ww?.tempAt(la, lo) ?: Double.NaN)
                     flyTarget = la to lo; flyTick++
                     pendingPick = la to lo
                     tapped(la, lo, false)
@@ -429,7 +442,7 @@ fun RadarScreen(
                         playing = !playing; AppLog.tap("Vollbild-Radar → ${if (playing) "Abspielen" else "Pause"}")
                     }, onIndex = { playing = false; index = it }, onDone = { AppLog.tap("Vollbild-Radar → Zeitleiste auf ${label(ui, index, abroad)}") })
                     RadarLayer.WIND, RadarLayer.TEMP -> WorldTimeline(ui, hour, playing, temp = layer == RadarLayer.TEMP, minMax = minMax, onMinMax = {
-                        haptic(de.schee.wetter.ui.Haptics.Kind.SNAP); minMax = !minMax
+                        haptic(de.schee.wetter.ui.Haptics.Kind.SNAP); minMax = !minMax; extremePin = null
                         radarPrefs.edit().putBoolean("minMax", minMax).apply()
                         AppLog.tap("Temperatur → Max/Min je Land ${if (minMax) "an" else "aus"}")
                     }, onPlay = {
@@ -1087,6 +1100,9 @@ internal fun pickLabels(
 }
 
 /** Name des nächsten Orts (ab 1000 Einwohnern) im Umkreis von 40 km; null, wenn keiner. */
+/** Gemerkter wärmster/kältester Punkt eines Landes (Pin auf der Karte). */
+internal data class ExtremePin(val lat: Double, val lon: Double, val isMax: Boolean, val country: String, val near: String?, val value: Double)
+
 internal fun nearPlace(idx: Places.Index, lat: Double, lon: Double, maxKm: Double = 40.0): String? {
     val cosLat = kotlin.math.cos(Math.toRadians(lat))
     val dLat = maxKm / 111.2

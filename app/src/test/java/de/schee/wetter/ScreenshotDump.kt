@@ -32,6 +32,19 @@ import java.time.Duration
 class ScreenshotDump {
     private fun res(name: String) = javaClass.classLoader!!.getResource(name)!!.readText()
 
+    /** Pin am kältesten/wärmsten Punkt (Kevin am 17.11.2026). */
+    @Test fun extremePin() {
+        val target = System.getProperty("wetter.shots").orEmpty()
+        assumeTrue(target.isNotEmpty())
+        val d = 3f
+        val a = de.schee.wetter.ui.radar.markerBitmap(de.schee.wetter.ui.radar.MapMarker(72.0, -40.0, "Kältester Punkt", "Grönland · abgelegen", "-44°", de.schee.wetter.ui.radar.tempColorMap(-44.0), false), d)
+        val b = de.schee.wetter.ui.radar.markerBitmap(de.schee.wetter.ui.radar.MapMarker(48.0, 2.0, "Wärmster Punkt", "Frankreich · bei Perpignan", "17°", de.schee.wetter.ui.radar.tempColorMap(17.0), true), d)
+        val bmp = Bitmap.createBitmap(maxOf(a.width, b.width) + 40, a.height + b.height + 40, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp); c.drawColor(0xFF4A6FA0.toInt())
+        c.drawBitmap(a, 20f, 10f, null); c.drawBitmap(b, 20f, a.height + 30f, null)
+        File(target, "pin.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
     @Test fun main() {
         val target = System.getProperty("wetter.shots").orEmpty()
         assumeTrue(target.isNotEmpty())
