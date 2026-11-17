@@ -100,7 +100,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.compose.material:material-icons-core")
     // Karte im Vollbild-Radar (Version 12: passt zu Kotlin 2.0)
-    implementation("org.maplibre.gl:android-sdk:12.3.1")
+    implementation("org.maplibre.gl:android-sdk:13.7.1")
     // Dieselbe Netz-Bibliothek, die die Karte ohnehin mitbringt – für das Leeren der Radar-Kacheln (data/TileMask.kt)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
