@@ -11,6 +11,7 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import de.schee.wetter.log.AppLog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -45,6 +46,14 @@ object LocationSource {
         return Place(name, loc.latitude, loc.longitude, fromGps = true)
     }
 
+    /** Standort, den das Handy schon kennt (ohne neue Suche, sofort); null = keiner oder nicht erlaubt. */
+    @SuppressLint("MissingPermission")
+    suspend fun lastKnown(context: Context): android.location.Location? {
+        if (!hasPermission(context)) return null
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        return withTimeoutOrNull(2_000) { runCatching { client.lastLocation.await() }.getOrNull() }
+    }
+
     /** Live-Position für den blauen Punkt im Vollbild-Radar. */
     data class Fix(val lat: Double, val lon: Double, val accuracyM: Float)
 
@@ -69,12 +78,19 @@ object LocationSource {
         awaitClose { client.removeLocationUpdates(cb); AppLog.i(AppLog.Cat.ORT, "Live-Standort im Radar beendet") }
     }
 
+    /**
+     * Ortsname zu einer Position. Android fragt dafür im Netz nach – bei schlechtem Netz höchstens 4 Sekunden
+     * warten, sonst Koordinaten (die App nimmt dann den Namen des nahen, zuletzt bekannten Orts).
+     */
     @Suppress("DEPRECATION")
-    suspend fun placeName(context: Context, lat: Double, lon: Double): String = withContext(Dispatchers.IO) {
-        runCatching {
-            Geocoder(context, Locale.GERMANY).getFromLocation(lat, lon, 1)?.firstOrNull()?.let { a ->
-                a.locality ?: a.subLocality ?: a.subAdminArea ?: a.adminArea
-            }
-        }.getOrNull() ?: "%.2f°, %.2f°".format(Locale.GERMANY, lat, lon)
+    suspend fun placeName(context: Context, lat: Double, lon: Double): String {
+        val lookup = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).async {
+            runCatching {
+                Geocoder(context, Locale.GERMANY).getFromLocation(lat, lon, 1)?.firstOrNull()?.let { a ->
+                    a.locality ?: a.subLocality ?: a.subAdminArea ?: a.adminArea
+                }
+            }.getOrNull()
+        }
+        return withTimeoutOrNull(4_000) { lookup.await() } ?: "%.2f°, %.2f°".format(Locale.GERMANY, lat, lon)
     }
 }

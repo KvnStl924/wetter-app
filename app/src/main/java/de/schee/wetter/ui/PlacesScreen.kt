@@ -101,7 +101,7 @@ fun PlacesScreen(onClose: () -> Unit, vm: WeatherViewModel = viewModel()) {
         // „Mein Standort“ (falls erlaubt) – nicht verschiebbar, nicht löschbar
         if (gps) {
             PlaceCard(states[WeatherViewModel.GPS] ?: vm.uiFor(WeatherViewModel.GPS), gps = true, units = units, edit = edit,
-                onClick = { AppLog.tap("Ortsliste → Mein Standort"); vm.select(0); onClose() },
+                onClick = { AppLog.tap("Ortsliste → Mein Standort"); vm.jumpTo(0); onClose() },
                 onLongClick = { edit = true; AppLog.tap("Ortsliste lange gedrückt → Bearbeiten") })
         }
 
@@ -118,7 +118,7 @@ fun PlacesScreen(onClose: () -> Unit, vm: WeatherViewModel = viewModel()) {
                 Modifier.fillMaxWidth().let { if (isDragged) it.offset { IntOffset(0, dragY.roundToInt()) } else it },
             ) {
                 PlaceCard(states[id] ?: vm.uiFor(id).copy(place = p), gps = false, units = units, edit = edit,
-                    onClick = { AppLog.tap("Ortsliste → ${p.name}"); vm.select(i + offsetGps); onClose() },
+                    onClick = { AppLog.tap("Ortsliste → ${p.name}"); vm.jumpTo(i + offsetGps); onClose() },
                     onLongClick = { edit = true; AppLog.tap("Ortsliste lange gedrückt → Bearbeiten") },
                     onDelete = { AppLog.tap("Ortsliste → ${p.name} gelöscht"); vm.removePlace(p) },
                     handle = Modifier.pointerInput(saved.size) {

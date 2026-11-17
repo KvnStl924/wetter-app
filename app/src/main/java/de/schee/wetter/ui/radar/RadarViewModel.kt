@@ -75,6 +75,9 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         private var radarAt = 0L
         private var cloudsAt = 0L
         private var strikesAt = 0L
+        /** Letzter Versuch Regen-Vorhersage bzw. Stunden Temperatur/Wind (nicht jede Minute erneut probieren, wenn der DWD etwas noch nicht hat). */
+        private var rainTriedAt = 0L
+        private var hoursTriedAt = 0L
         /** Blitze je 5-Minuten-Abschnitt, wie geladen (für das Nachladen nur neuer Abschnitte). */
         private val strikeFrames = HashMap<Instant, List<Satellite.Strike>>()
     }
@@ -107,9 +110,18 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
             val rv = runCatching { de.schee.wetter.data.RainViewer.load() }.getOrDefault(emptyList())
             val frames = RadarData.frames(latest)
             val nowIndex = frames.indexOfFirst { it.minutes == 0 }
-            set { it.copy(frames = frames, bytes = mapOf(nowIndex to nowBytes), nowIndex = nowIndex, error = null, rainViewer = rv, coverage = cov) }
+            // Aktualisieren (alle 5 Minuten bei offener App): Bilder vom letzten Mal bleiben sichtbar, bis die neuen
+            // da sind – das Radar ist so nie „leer am Laden“ (Kevin am 17.11.2026). Gemessene Bilder ändern sich nicht
+            // mehr und werden nicht neu geladen; Bilder, die aus der Zeitleiste fallen, werden verworfen.
+            val old = _ui.value
+            val oldAt = old.frames.withIndex().mapNotNull { (i, f) -> old.bytes[i]?.let { f.time to (f.kind to it) } }.toMap()
+            val kept = frames.indices.mapNotNull { i -> oldAt[frames[i].time]?.let { i to it } }.toMap()
+            val bytes = kept.mapValues { it.value.second } + (nowIndex to nowBytes)
+            set { it.copy(frames = frames, bytes = bytes, nowIndex = nowIndex, error = null, rainViewer = rv.ifEmpty { it.rainViewer }, coverage = cov) }
+            val measured = kept.filter { (i, v) -> frames[i].kind == RadarData.Kind.RADAR && v.first == RadarData.Kind.RADAR }.keys
+            if (kept.isNotEmpty()) AppLog.data("Radar: ${measured.size} gemessene Bilder vom letzten Mal übernommen")
             // Reihenfolge: von „Jetzt“ aus abwechselnd vor und zurück, damit das Abspielen schnell beginnen kann.
-            val order = frames.indices.filter { it != nowIndex }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
+            val order = frames.indices.filter { it != nowIndex && it !in measured }.sortedBy { kotlin.math.abs(it - nowIndex) + if (it < nowIndex) 0.5 else 0.0 }
             val gate = Semaphore(4)
             val missing = java.util.concurrent.atomic.AtomicInteger()
             order.map { i ->
@@ -117,12 +129,13 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
                     gate.withPermit {
                         val b = runCatching { RadarData.fetch(frames[i]) }.getOrNull()
                         if (b == null) missing.incrementAndGet()
-                        set { it.copy(bytes = it.bytes + (i to b)) }
+                        // nicht geladen: das Bild vom letzten Mal behalten, falls es eins gibt
+                        set { if (b == null && it.bytes[i] != null) it else it.copy(bytes = it.bytes + (i to b)) }
                     }
                 }
             }.awaitAll()
             val kb = _ui.value.bytes.values.sumOf { it?.size ?: 0 } / 1024
-            AppLog.data("Radar: ${frames.size - missing.get()}/${frames.size} Bilder geladen (${System.currentTimeMillis() - started} ms, $kb kB, jüngste Messung $latest)")
+            AppLog.data("Radar: ${order.size + 1 - missing.get()}/${order.size + 1} Bilder neu geladen (${System.currentTimeMillis() - started} ms, $kb kB im Speicher, jüngste Messung $latest)")
             radarAt = System.currentTimeMillis()
         }
     }
@@ -159,6 +172,9 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     /** Weitere Stunden für die Zeitleiste (nur bei geöffnetem Radar mit Temperatur/Wind), nacheinander. */
     fun loadWorldHours() {
         if (hoursJob?.isActive == true) return
+        if (_ui.value.worldHours.isNotEmpty() && _ui.value.worldHours.all { _ui.value.world[it] != null }) return
+        if (System.currentTimeMillis() - hoursTriedAt < 10 * 60_000) return
+        hoursTriedAt = System.currentTimeMillis()
         hoursJob = viewModelScope.launch {
             worldJob?.join()
             for (t in _ui.value.worldHours.drop(1)) {
@@ -280,6 +296,8 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
         val first = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.HOURS).plusSeconds(3600)
         val hours = (0..12).map { first.plusSeconds(it * 3600L) }
         if (hours.all { _ui.value.worldRain[it] != null }) return
+        if (System.currentTimeMillis() - rainTriedAt < 10 * 60_000) return
+        rainTriedAt = System.currentTimeMillis()
         rainJob = viewModelScope.launch {
             val started = System.currentTimeMillis()
             // neue Stunde: vergangene Stunden verwerfen
@@ -335,15 +353,22 @@ class RadarViewModel(app: Application) : AndroidViewModel(app) {
     }
 
 
-    /** Alles vorladen (beim Öffnen der App). */
+    /**
+     * Alles vorladen – beim Öffnen der App und danach jede Minute, solange sie offen ist (jede Funktion lädt nur,
+     * wenn ihre Daten veraltet sind). Seit 3.2.0 auch die Regen-Vorhersage weltweit und die 12 Stunden Temperatur/Wind,
+     * damit das Vollbild-Radar beim Öffnen fertig ist (Kevin am 17.11.2026).
+     */
     fun preload() {
-        load(); loadWorld(); loadClouds(); loadLightning()
+        load(); loadWorld(); loadClouds(); loadLightning(); loadWorldRain(); loadWorldHours()
         if (de.schee.wetter.data.Places.index.value == null) viewModelScope.launch(Dispatchers.IO) { runCatching { de.schee.wetter.data.Places.load(getApplication()) } }
     }
 
     /** Beim Verlassen der App: Laden abbrechen (keine Arbeit im Hintergrund). */
     fun stop() {
-        if (job?.isActive == true) { job?.cancel(); set { it.copy(frames = emptyList(), bytes = emptyMap()) } }
+        // abgebrochenes Radar: Bilder behalten (alte bleiben gültig), beim nächsten Öffnen fehlende nachladen
+        if (job?.isActive == true) { job?.cancel(); radarAt = 0 }
+        if (rainJob?.isActive == true) rainTriedAt = 0
+        if (hoursJob?.isActive == true) hoursTriedAt = 0
         worldJob?.cancel(); hoursJob?.cancel(); cloudJob?.cancel(); lightningJob?.cancel(); rainJob?.cancel(); detailJob?.cancel()
     }
 

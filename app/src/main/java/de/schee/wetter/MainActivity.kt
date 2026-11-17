@@ -21,6 +21,7 @@ import de.schee.wetter.ui.radar.RadarPlace
 import de.schee.wetter.ui.radar.RadarScreen
 import de.schee.wetter.data.Units
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.repeatOnLifecycle
 import de.schee.wetter.ui.SettingsScreen
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                         radarVm.preload()
+                        // Solange die App offen ist: jede Minute nachsehen, ob es neue Radar-/Wetterkarten gibt
+                        launch { while (true) { kotlinx.coroutines.delay(60_000); radarVm.preload() } }
                         // Netz beobachten (nur bei sichtbarer App): kommt es zurück, alles von selbst aktualisieren
                         var wasOnline: Boolean? = null
                         try {

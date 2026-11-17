@@ -157,8 +157,29 @@ fun MainScreen(
     val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = selected) { pageIds.size.coerceAtLeast(1) }
     // Wischen → Seite merken (lädt sie, falls nötig); Auswahl aus der Ortsliste → hinblättern
     val haptic = rememberHaptics()
-    LaunchedEffect(pager.settledPage) { if (preview == null && pageIds.isNotEmpty()) { if (pager.settledPage != selected) { AppLog.tap("Wisch → Seite ${pager.settledPage + 1}"); haptic(Haptics.Kind.SNAP) }; vm.select(pager.settledPage) } }
-    LaunchedEffect(selected, pageIds.size) { if (selected != pager.currentPage && selected < pageIds.size) pager.scrollToPage(selected) }
+    // Nur EINE Richtung bestimmt (bis 3.1.2 schaukelten sich Wischen und Auswahl beim Start gegenseitig auf):
+    // Die Ansicht meldet, wo sie steht; geblättert wird nur auf ausdrücklichen Sprung-Wunsch ([WeatherViewModel.jump]).
+    val jump by vm.jump.collectAsState()
+    val pageCount by androidx.compose.runtime.rememberUpdatedState(pageIds.size)
+    val snap by androidx.compose.runtime.rememberUpdatedState(haptic)
+    LaunchedEffect(pager) {
+        if (preview != null) return@LaunchedEffect
+        var first = true
+        androidx.compose.runtime.snapshotFlow { pager.settledPage }.collect { p ->
+            if (vm.jump.value != null || p >= pageCount) return@collect
+            if (p != vm.selected.value) {
+                if (first) AppLog.i(AppLog.Cat.ORT, "Seite ${p + 1} vom letzten Mal wiederhergestellt")
+                else { AppLog.tap("Wisch → Seite ${p + 1}"); snap(Haptics.Kind.SNAP) }
+            }
+            first = false
+            vm.select(p)
+        }
+    }
+    LaunchedEffect(jump, pageIds.size) {
+        val j = jump ?: return@LaunchedEffect
+        if (j < pageIds.size && j != pager.currentPage) pager.scrollToPage(j)
+        vm.jumpDone()
+    }
 
     Box(Modifier.fillMaxSize()) {
         // Nachbarseiten vorab aufbauen: beim Wischen ist der nächste Ort schon fertig da (vorher „ploppte“ er auf).

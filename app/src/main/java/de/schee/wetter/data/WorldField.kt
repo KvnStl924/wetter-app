@@ -211,10 +211,31 @@ object DwdWorld {
         val g = WorldGrid.fromGeoTiff(bytes)
         if (file != null) runCatching {
             file.writeBytes(bytes)
-            // alte Dateien aufräumen (älter als 12 Stunden)
-            dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 12 * 3600_000L }?.forEach { it.delete() }
+            cleanUp(dir, file)
         }
         return g
+    }
+
+    /**
+     * Speicher klein halten (Kevin am 17.11.2026: alte Daten löschen, sobald neue da sind): weg mit
+     *  - derselben Stunde aus einem älteren Modelllauf (die neue Datei ersetzt sie),
+     *  - Stunden, die mehr als 2 Stunden vorbei sind,
+     *  - allem, was älter als 12 Stunden ist.
+     */
+    internal fun cleanUp(dir: File, written: File) {
+        val nowH = System.currentTimeMillis() / 3600_000
+        fun parts(f: File) = f.name.removeSuffix(".tif").split('_')
+        val w = parts(written)
+        dir.listFiles()?.forEach { f ->
+            if (f == written) return@forEach
+            val p = parts(f)
+            val hour = p.getOrNull(1)?.toLongOrNull()
+            val sameSlot = f.name.endsWith(".tif") && p.size >= 2 && p[0] == w[0] && p[1] == w[1]
+            val olderRun = sameSlot && (p.getOrNull(2)?.toLongOrNull() ?: -1) < (w.getOrNull(2)?.toLongOrNull() ?: -1)
+            val past = f.name.endsWith(".tif") && hour != null && hour < nowH - 2
+            val old = System.currentTimeMillis() - f.lastModified() > 12 * 3600_000L
+            if (olderRun || past || old) f.delete()
+        }
     }
 
     /** Feld aus dem neuesten Modelllauf; liefert der (noch) nichts, der Lauf davor, zuletzt wie früher ohne Angabe. */

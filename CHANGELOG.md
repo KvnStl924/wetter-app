@@ -1,6 +1,12 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.2.0 – Schneller Start: Standort sofort, Radar fertig vorgeladen
+- Fehler behoben: Beim Start sprang die App manchmal hunderte Male zwischen zwei Seiten hin und her (11. und 17.11.). Jetzt bestimmt nur noch eine Stelle, welche Seite gezeigt wird
+- „Mein Standort“ erscheint sofort: Die App nimmt den Standort, den das Handy schon kennt, und zeigt gleich das Wetter dafür. Die genaue Ortung läuft nebenher; ist man inzwischen mehr als 1,5 km woanders, lädt sie das Wetter neu. Der Ortsname wartet bei schlechtem Netz höchstens 4 Sekunden
+- Radar beim Öffnen fertig: Schon beim App-Start werden alle Radarbilder, die Regen-Vorhersage weltweit und 12 Stunden Temperatur/Wind geladen, und solange die App offen ist, jede Minute auf Neues geprüft. Beim Aktualisieren bleiben die alten Bilder sichtbar, bis die neuen da sind; gemessene Bilder werden nicht doppelt geladen
+- Speicher: Alte Daten werden gelöscht, sobald neuere da sind (älterer Modelllauf, vergangene Stunden, Radarbilder außerhalb der Zeitleiste)
+
 ## 3.1.2 – Unwetterwarnung ohne Hinweiszeile
 - Zeile „Tippen für Details · Quelle: DWD“ unter der Unwetterwarnung entfernt (Quelle steht in den Einstellungen unter „Über“)
 

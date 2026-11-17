@@ -198,4 +198,21 @@ class RadarTest {
         val sizes = de.schee.wetter.ui.radar.labelFeatures(labels).features()!!.map { it.getNumberProperty("ts").toFloat() }
         org.junit.Assert.assertEquals(listOf(12.5f, 12.5f, 12.5f, 11f, 9.5f), sizes)
     }
+
+    /** Alte Weltdaten werden gelöscht, sobald neue da sind (Kevin am 17.11.2026). */
+    @Test fun worldCacheCleanUp() {
+        val dir = kotlin.io.path.createTempDirectory("world").toFile()
+        val h = System.currentTimeMillis() / 3600_000
+        fun f(n: String) = java.io.File(dir, n).apply { writeText("x") }
+        val oldRun = f("rain_${h + 3}_${h - 9}.tif")
+        val otherHour = f("rain_${h + 4}_${h - 9}.tif")
+        val past = f("temp_${h - 5}_${h - 9}.tif")
+        val otherField = f("wind_${h + 3}_${h - 9}.tif")
+        val sat = f("sat2_mumi.jpg")
+        val new = f("rain_${h + 3}_${h - 3}.tif")
+        de.schee.wetter.data.DwdWorld.cleanUp(dir, new)
+        assertTrue(new.exists() && otherHour.exists() && otherField.exists() && sat.exists())
+        assertTrue(!oldRun.exists() && !past.exists())
+        dir.deleteRecursively()
+    }
 }
