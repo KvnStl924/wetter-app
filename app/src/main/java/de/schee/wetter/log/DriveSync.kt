@@ -63,6 +63,8 @@ object DriveSync {
      */
     @Synchronized
     fun uploadPending(context: Context): Int {
+        // Protokoll aus (seit 3.8.0): nichts nach Drive hochladen
+        if (!AppLog.enabled) return 0
         val pending = AppLog.pendingFiles()
         if (pending.isEmpty()) return 0
         val tree = treeUri(context)
@@ -94,6 +96,7 @@ object DriveSync {
 
     /** Legt die eigene APK in „02 APK - zum Installieren“ ab, falls diese Version dort noch fehlt. */
     fun copyOwnApkIfMissing(context: Context, versionName: String) {
+        if (!AppLog.enabled) return
         val tree = treeUri(context) ?: return
         val resolver = context.contentResolver
         val name = "Wetter-v$versionName.apk"

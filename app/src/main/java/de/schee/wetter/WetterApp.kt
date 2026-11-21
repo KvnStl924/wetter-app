@@ -33,6 +33,8 @@ class WetterApp : Application() {
     }
 
     private fun onAppOpened() {
+        // Protokoll aus (seit 3.8.0): kein Log, kein Upload, keine APK nach Drive
+        if (!AppLog.enabled) return
         AppLog.startSession(BuildConfig.VERSION_NAME)
         lastUploadNote(this)?.let { AppLog.i(AppLog.Cat.DRIVE, "Letzter Upload beim Verlassen: $it") }
         io.launch {
@@ -43,6 +45,7 @@ class WetterApp : Application() {
     }
 
     private fun onAppLeft() {
+        if (!AppLog.enabled) return
         AppLog.endSession("App verlassen → Log wird hochgeladen") {
             io.launch {
                 val started = System.currentTimeMillis()

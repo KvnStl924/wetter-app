@@ -25,6 +25,17 @@ object AppLog {
         DRIVE("DRIVE"), UPDATE("UPDATE"), FEHLER("FEHLER"), INFO("INFO")
     }
 
+    /**
+     * Hauptschalter fürs Protokoll. Seit 3.8.0 AUS (Kevin am 22.11.2026: „ab sofort nichts mehr loggen und nichts
+     * mehr in Google Drive hochladen – nicht löschen, nur deaktivieren“). Aus heißt: keine Log-Datei, keine
+     * Absturzberichte, kein Update-Protokoll, kein Upload und keine APK-Kopie nach Drive; alte Dateien auf dem
+     * Handy werden beim Start gelöscht. Zum Wiedereinschalten auf true setzen – alles andere ist unverändert da.
+     */
+    const val ENABLED = false
+
+    /** Laufzeit-Schalter (Standard [ENABLED]); Tests können ihn umstellen. */
+    @Volatile var enabled: Boolean = ENABLED
+
     /** Höchstens so viel Log-Speicher auf dem Handy, ältere Dateien werden gelöscht. */
     const val MAX_LOCAL_BYTES = 20L * 1024 * 1024
 
@@ -38,6 +49,11 @@ object AppLog {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        if (!enabled) {
+            // ausgeschaltet: nichts anlegen und Reste von früher (noch nicht hochgeladene Logs) vom Handy löschen
+            writerThread.execute { runCatching { File(appContext.filesDir, "logs").deleteRecursively() } }
+            return
+        }
         logDir().mkdirs(); crashDir().mkdirs(); updateDir().mkdirs()
     }
 
@@ -48,6 +64,7 @@ object AppLog {
     val isRunning: Boolean get() = writer != null
 
     fun startSession(versionName: String) {
+        if (!enabled) return
         writerThread.execute {
             if (writer != null) return@execute
             val f = File(logDir(), "log_${fileFmt.format(Date())}.txt")
@@ -71,13 +88,14 @@ object AppLog {
         }
     }
 
-    fun i(cat: Cat, msg: String) = writerThread.execute { writeLine(cat, msg) }
+    fun i(cat: Cat, msg: String) { if (enabled) writerThread.execute { writeLine(cat, msg) } }
     fun tap(msg: String) = i(Cat.TIPP, msg)
     fun data(msg: String) = i(Cat.DATEN, msg)
     fun error(msg: String, t: Throwable? = null) = i(Cat.FEHLER, if (t == null) msg else "$msg: ${t.javaClass.simpleName}: ${t.message}")
 
     /** Update-Schritte gehen ins Session-Log und zusätzlich in eine eigene Datei fürs Update-Protokoll. */
     fun update(msg: String) {
+        if (!enabled) return
         i(Cat.UPDATE, msg)
         writerThread.execute {
             val name = current?.name?.replace("log_", "update_") ?: "update_${fileFmt.format(Date())}.txt"
@@ -89,6 +107,7 @@ object AppLog {
 
     /** Wird aus dem Absturz-Handler aufgerufen: synchron schreiben, der Prozess endet gleich. */
     fun writeCrash(thread: Thread, t: Throwable, versionName: String) {
+        if (!enabled) return
         runCatching {
             val sw = StringWriter(); t.printStackTrace(PrintWriter(sw))
             val f = File(crashDir(), "absturz_${fileFmt.format(Date())}.txt")
@@ -113,6 +132,7 @@ object AppLog {
 
     /** Fertige Dateien, die auf den Upload warten (ohne die gerade offene). */
     fun pendingFiles(): List<Pair<File, String>> {
+        if (!enabled) return emptyList()
         val open = current
         val out = mutableListOf<Pair<File, String>>()
         val openUpdate = open?.name?.replace("log_", "update_")

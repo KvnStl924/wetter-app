@@ -21,7 +21,9 @@ Kevin ist Laie: Antworten einfach und auf Deutsch, selbst erledigen statt Anleit
 ## Regeln von Kevin
 - **Keine Hintergrundaktivität.** Alles nur bei geöffneter App (Standort, Daten, Animation).
   Kein WorkManager-Zeitplan, kein Service. Animationen über `repeatOnLifecycle(STARTED)`.
-- **Logging** (`log/AppLog.kt`): startet beim Öffnen, protokolliert jeden Tipp (`AppLog.tap("Was → Ziel")`),
+- **Logging ist seit 3.8.0 AUS** (Kevin am 22.11.2026): `AppLog.ENABLED = false` – kein Log, kein Drive-Upload, keine APK-Kopie.
+  Nicht entfernen, nur bei Bedarf wieder auf `true` setzen. Neue Bedienelemente rufen trotzdem `AppLog.tap` auf.
+  Früheres Verhalten bei eingeschaltetem Logging (`log/AppLog.kt`): startet beim Öffnen, protokolliert jeden Tipp (`AppLog.tap("Was → Ziel")`),
   jede Datenabfrage (`AppLog.data`), Fehler. Beim Verlassen Upload nach Drive
   „03 Logs - Fehlerberichte/Logs“ (`log/DriveSync.kt`), danach lokal löschen. Offline: beim nächsten Öffnen.
   Max. 20 MB lokal. Neue Bedienelemente müssen ihren Tipp loggen.

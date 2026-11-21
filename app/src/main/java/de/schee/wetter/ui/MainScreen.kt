@@ -129,7 +129,8 @@ fun MainScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var mode by rememberSaveable { mutableStateOf(Mode.TEMP) }
     var openDay by remember { mutableStateOf<Pair<de.schee.wetter.data.Forecast, Day>?>(null) }
-    var driveConnected by remember { mutableStateOf(preview != null || DriveSync.treeUri(context) != null) }
+    // ohne Protokoll (seit 3.8.0) braucht es keinen Drive-Ordner → kein Hinweis „Google Drive verbinden“
+    var driveConnected by remember { mutableStateOf(preview != null || !AppLog.enabled || DriveSync.treeUri(context) != null) }
     var askedPermission by rememberSaveable { mutableStateOf(false) }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->

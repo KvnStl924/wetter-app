@@ -99,7 +99,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             // Drive & Logging nur, solange kein Ordner verbunden ist (Wunsch 09.11.)
-            if (remember { DriveSync.treeUri(context) } == null) DriveTile()
+            if (de.schee.wetter.log.AppLog.enabled && remember { DriveSync.treeUri(context) } == null) DriveTile()
             UpdateTile()
 
             Tile("Über") {

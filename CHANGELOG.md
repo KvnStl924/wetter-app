@@ -1,6 +1,11 @@
 # Änderungen
 
 Schema `X.Y.Z`: X = großes Update, Y = kleines Update, Z = Fehlerbehebung.
+## 3.8.0 – Protokoll ausgeschaltet
+- Die App schreibt kein Protokoll mehr und lädt nichts mehr nach Google Drive hoch (keine Logs, keine Absturzberichte, kein Update-Protokoll, keine APK-Kopie). Reste alter Logs auf dem Handy werden beim Start gelöscht
+- Der Hinweis „Google Drive verbinden“ und der Bereich „Drive & Logging“ in den Einstellungen sind ausgeblendet
+- Nur ausgeschaltet, nicht entfernt: Schalter `AppLog.ENABLED` in `log/AppLog.kt`
+
 ## 3.7.0 – Pin am wärmsten bzw. kältesten Punkt
 - Max/Min antippen setzt einen Pin an die Stelle des Werts („▼ Kältester Punkt −44°“, darunter Land und nächster Ort bzw. „abgelegen“). Die Karte schiebt sich nur dorthin und zoomt nicht mehr hinein – so bleibt die Übersicht
 - Der Pin bleibt beim Zoomen, Verschieben und Tippen stehen; er verschwindet beim Wechsel der Ansicht, beim Ausschalten von Max/Min oder beim Verlassen des Radars
